@@ -28,9 +28,13 @@
         <div class="bar"><i id="bar"></i></div>
         <div id="loadmsg">Starting</div>
       </div>
+      <div class="viewpick" role="group" aria-label="View">
+        <button id="view-fpv" type="button" class="on" aria-pressed="true"><b>FPV goggles</b><span>See through the drone's camera</span></button>
+        <button id="view-los" type="button" aria-pressed="false"><b>Line of sight</b><span>Stand on the street, watch the drone, remote screen in hand</span></button>
+      </div>
       <div id="start" class="start" hidden>
         <button id="fly" type="button" class="primary">Fly on this screen</button>
-        <button id="vr" type="button" hidden>Enter VR · goggles view</button>
+        <button id="vr" type="button" hidden>Enter VR</button>
       </div>
       <p class="note">Street circuit · altitude limit 32 m · geofence over open blocks. Real local time drives the light.</p>
     </section>

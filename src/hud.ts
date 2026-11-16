@@ -93,3 +93,57 @@ export function drawHud(g: CanvasRenderingContext2D, W: number, H: number, s: Hu
   }
   g.restore();
 }
+
+export interface LosState {
+  visible: boolean; reason: string | null; lostFor: number; dist: number; alt: number; hs: number; battery: number;
+  marker: { x: number; y: number; on: boolean } | null; pip: { x: number; y: number; w: number; h: number } | null;
+  mode: string; warnings: string[]; banner: string | null; range: number;
+}
+
+/** Line-of-sight overlay (PC): sight status, drone marker, frame around the remote's screen. */
+export function drawLosHud(g: CanvasRenderingContext2D, W: number, H: number, s: LosState) {
+  const u = H / 1080; g.clearRect(0, 0, W, H); g.save(); g.scale(u, u);
+  const w = W / u, h = 1080, cx = w / 2;
+  const T = (t: string, x: number, y: number, size: number, color = '#fff', align: CanvasTextAlign = 'left', weight = 700, font = MONO) => { g.font = `${weight} ${size}px ${font}`; g.fillStyle = color; g.textAlign = align; g.fillText(t, x, y); };
+  g.shadowColor = 'rgba(0,0,0,.8)'; g.shadowBlur = 6;
+
+  // sight status pill + meter (how close to the edge of visual range)
+  const ok = s.visible, label = ok ? `DRONE IN SIGHT · ${Math.round(s.dist)} m` : `LINE OF SIGHT LOST · ${s.reason}`;
+  g.shadowBlur = 0; g.font = `700 26px ${MONO}`; const tw = g.measureText(label).width + 48;
+  g.fillStyle = ok ? 'rgba(91,227,140,.92)' : 'rgba(255,90,78,.94)'; g.beginPath(); g.roundRect(cx - tw / 2, 28, tw, 46, 10); g.fill();
+  T(label, cx, 61, 26, '#05080C', 'center');
+  const frac = Math.min(1, s.dist / s.range);
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.beginPath(); g.roundRect(cx - 220, 86, 440, 8, 4); g.fill();
+  g.fillStyle = frac > 0.8 ? '#FFB020' : ok ? '#5BE38C' : '#FF5A4E'; g.beginPath(); g.roundRect(cx - 220, 86, 440 * frac, 8, 4); g.fill();
+  T(`visual range ${s.range} m`, cx + 220, 116, 16, 'rgba(255,255,255,.8)', 'right', 500);
+  if (!ok) T(`${s.lostFor.toFixed(1)} s`, cx - 220, 116, 16, '#FF8A80', 'left', 600);
+  g.shadowBlur = 6;
+
+  // drone marker
+  if (s.marker) {
+    const { x, y, on } = s.marker, mx = x / u, my = y / u;
+    g.strokeStyle = ok ? 'rgba(91,227,140,.95)' : 'rgba(255,90,78,.95)'; g.lineWidth = 2.5;
+    if (on) { g.beginPath(); g.arc(mx, my, 26, 0, Math.PI * 2); g.stroke(); T(`${Math.round(s.dist)} m · ${Math.round(s.alt)} m up`, mx + 34, my + 6, 18, '#fff', 'left', 600); }
+    else { // off-screen: arrow at the edge
+      const ex = Math.min(w - 60, Math.max(60, mx)), ey = Math.min(h - 60, Math.max(140, my)), a = Math.atan2(my - h / 2, mx - w / 2);
+      g.save(); g.translate(ex, ey); g.rotate(a); g.fillStyle = g.strokeStyle; g.beginPath(); g.moveTo(18, 0); g.lineTo(-12, -12); g.lineTo(-12, 12); g.fill(); g.restore();
+    }
+  }
+
+  // remote screen frame + telemetry
+  if (s.pip) {
+    const p = { x: s.pip.x / u, y: s.pip.y / u, w: s.pip.w / u, h: s.pip.h / u };
+    g.shadowBlur = 0; g.strokeStyle = '#0E1013'; g.lineWidth = 14; g.beginPath(); g.roundRect(p.x - 7, p.y - 7, p.w + 14, p.h + 14, 14); g.stroke();
+    g.strokeStyle = 'rgba(63,208,255,.5)'; g.lineWidth = 2; g.beginPath(); g.roundRect(p.x - 14, p.y - 14, p.w + 28, p.h + 28, 18); g.stroke();
+    g.shadowBlur = 6;
+    T(s.mode, p.x + 10, p.y + 28, 20, '#FFB020'); T(`ALT ${s.alt.toFixed(0)} m`, p.x + 10, p.y + p.h - 12, 18);
+    T(`${s.hs.toFixed(1)} m/s`, p.x + p.w / 2, p.y + p.h - 12, 18, '#fff', 'center'); T(`${Math.round(s.battery * 100)} %`, p.x + p.w - 10, p.y + p.h - 12, 18, s.battery > 0.3 ? '#5BE38C' : '#FF5A4E', 'right');
+  }
+
+  const now = new Date();
+  T(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), w - 40, 62, 30, '#fff', 'right');
+  T(now.toLocaleDateString([], { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }), w - 40, 92, 18, 'rgba(255,255,255,.85)', 'right', 500);
+  s.warnings.forEach((wn, i) => { g.shadowBlur = 0; g.font = `700 22px ${MONO}`; const ww = g.measureText(wn).width + 36; g.fillStyle = 'rgba(255,176,32,.92)'; g.beginPath(); g.roundRect(40, 40 + i * 44, ww, 36, 8); g.fill(); T(wn, 58, 66 + i * 44, 22, '#05080C'); });
+  if (s.banner) { g.shadowBlur = 0; g.fillStyle = 'rgba(4,8,12,.75)'; g.font = `600 26px ${SANS}`; const bw = g.measureText(s.banner).width + 60; g.beginPath(); g.roundRect(cx - bw / 2, 140, bw, 58, 12); g.fill(); T(s.banner, cx, 178, 26, '#fff', 'center', 600, SANS); }
+  g.restore();
+}

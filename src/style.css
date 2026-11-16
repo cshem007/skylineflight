@@ -41,6 +41,12 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); text-wrap: balance; }
 .drone .specs { display: flex; gap: 12px; flex-wrap: wrap; font: 500 12px var(--mono); color: #b8c8d6; margin-top: auto; }
 .drone:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
+.viewpick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.viewpick button { text-align: left; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: rgba(14, 26, 36, .8); color: var(--ink); font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.viewpick button b { font-size: 17px; }
+.viewpick button span { font-size: 13px; color: var(--muted); }
+.viewpick button.on { border-color: var(--amber); background: rgba(60, 42, 8, .55); box-shadow: 0 0 0 1px var(--amber) inset; }
+.viewpick button:hover { border-color: rgba(255, 176, 32, .6); }
 .loading { display: flex; flex-direction: column; gap: 8px; font: 500 13px var(--mono); color: var(--muted); }
 .bar { height: 4px; background: #0f1d28; border-radius: 2px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--cyan); transition: width .25s; }
