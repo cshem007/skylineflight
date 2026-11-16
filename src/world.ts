@@ -19,6 +19,7 @@ export class World {
   homeYaw = 0;
   private grid!: Float32Array; // ground height per cell, NaN = void (no-fly)
   private gw = 0; private gh = 0; private gx0 = 0; private gz0 = 0;
+  city!: THREE.Object3D;   // the loaded city (world scale); the lobby clones it for the map table
   sun = new THREE.DirectionalLight(0xffffff, 2);
   hemi = new THREE.HemisphereLight(0xbfd8ff, 0x2a241c, 0.8);
   private skyTex!: THREE.CanvasTexture;
@@ -36,7 +37,7 @@ export class World {
     const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
     const gltf = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/city.glb`, e => { if (e.total) onProgress(0.1 + 0.6 * e.loaded / e.total, `Loading city · ${Math.round(e.loaded / e.total * 100)} %`); });
     const city = gltf.scene; city.scale.setScalar(MPU); city.updateMatrixWorld(true);
-    this.scene.add(city);
+    this.scene.add(city); this.city = city;
 
     onProgress(0.72, 'Building collision mesh');
     const v = new THREE.Vector3();
@@ -119,6 +120,35 @@ export class World {
   }
   /** Exact ground under a point (ray), used for AGL and landing. */
   groundBelow(p: THREE.Vector3) { const h = this.ray(p.x, p.z, p.y + 0.5); return h ?? -3; }
+
+  /** Open street cells (low ground, nothing tall within 2 cells): where gates and checkpoints can go. */
+  isOpenStreet(x: number, z: number, clear = 2) {
+    for (let dj = -clear; dj <= clear; dj++) for (let di = -clear; di <= clear; di++) { const n = this.groundAt(x + di * CELL, z + dj * CELL); if (!(n < 1.5)) return false; }
+    return true;
+  }
+  /** Breadth-first walk along open streets from a point. Returns cells with their street distance (m) and parent links. */
+  streetWalk(from: THREE.Vector3, clear = 2) {
+    const idx = (x: number, z: number) => Math.floor((z - this.gz0) / CELL) * this.gw + Math.floor((x - this.gx0) / CELL);
+    const pos = (k: number) => new THREE.Vector3(this.gx0 + ((k % this.gw) + 0.5) * CELL, 0, this.gz0 + (Math.floor(k / this.gw) + 0.5) * CELL);
+    const dist = new Map<number, number>(), parent = new Map<number, number>(), start = idx(from.x, from.z), q = [start];
+    dist.set(start, 0);
+    while (q.length) {
+      const k = q.shift()!, p = pos(k);
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = p.x + di * CELL, nz = p.z + dj * CELL, nk = idx(nx, nz);
+        if (dist.has(nk) || !this.isOpenStreet(nx, nz, clear)) continue;
+        dist.set(nk, dist.get(k)! + CELL); parent.set(nk, k); q.push(nk);
+      }
+    }
+    const pathTo = (k: number) => { const out: THREE.Vector3[] = []; let c: number | undefined = k; while (c !== undefined) { out.push(pos(c)); c = parent.get(c); } return out.reverse(); };
+    return { dist, pos, pathTo };
+  }
+  /** Highest real rooftops (solid roofs, not facades): landmarks for the photo mission. */
+  rooftops(min = 10) {
+    const out: THREE.Vector3[] = [];
+    for (let j = 0; j < this.gh; j++) for (let i = 0; i < this.gw; i++) { const h = this.grid[j * this.gw + i]; if (h > min && h < ALT_LIMIT + 10) out.push(new THREE.Vector3(this.gx0 + (i + 0.5) * CELL, h, this.gz0 + (j + 0.5) * CELL)); }
+    return out;
+  }
 
   private pickHome() {
     // nearest street cell (low ground) to the spot chosen in the planner

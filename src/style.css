@@ -64,3 +64,10 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); text-wrap: balance; }
 kbd { font: 600 12px var(--mono); padding: 4px 8px; border-radius: 6px; border: 1px solid #2a4357; background: #0c1822; color: var(--ink); text-align: center; }
 
 @media (max-width: 760px) { #menu { grid-template-columns: minmax(0, 1fr); } }
+
+.lede { margin: 0; color: #b8c8d6; font-size: 16px; line-height: 1.5; max-width: 60ch; }
+.chip { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom)); max-width: min(520px, calc(100% - 32px));
+  padding: 12px 14px; border-radius: 12px; background: rgba(4, 8, 12, .82); border: 1px solid var(--line); font-size: 13px; line-height: 1.5; color: var(--muted); backdrop-filter: blur(6px); }
+.chip b { color: var(--ink); }
+.vr2 { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); height: 44px; padding: 0 18px; border-radius: 10px;
+  border: 1px solid var(--cyan); background: #0b2533; color: #9fe6ff; font: 600 14px var(--display); cursor: pointer; }

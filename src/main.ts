@@ -3,23 +3,32 @@ import { World, ALT_LIMIT } from './world';
 import { DRONES } from './drones';
 import { FlightModel } from './flight';
 import { Input } from './input';
-import { drawHud, drawLosHud, type HudState } from './hud';
+import { drawHud, drawLosHud, type HudState, type Extras } from './hud';
 import { Goggles } from './goggles';
 import { MotorSound } from './audio';
 import { buildDrone, buildRemote, spinProps, type DroneModel } from './models';
+import { createLobby } from './lobby';
+import { Briefing } from './briefing';
+import { createMission, PhotoHunt, type Mission, type MissionEnv, type Waypoint } from './missions';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type View = 'fpv' | 'los';
+type AppState = 'boot' | 'lobby' | 'briefing' | 'flight';
+interface LaunchConfig { droneIdx: number; missionIdx: number; view: View; waypoints: Waypoint[]; }
 
 /* ---------- renderer & cameras ---------- */
 const canvas = $<HTMLCanvasElement>('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
-const rig = new THREE.Group();                                    // VR pilot's body: origin of the play space
+const rig = new THREE.Group();                                    // VR pilot's body in the flight world
 const xrCam = new THREE.PerspectiveCamera(70, 1, 0.05, 5000); rig.add(xrCam);
 const droneCam = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 5000);
 const losCam = new THREE.PerspectiveCamera(55, 16 / 9, 0.1, 5000);  // PC line-of-sight: pilot's eyes
@@ -35,17 +44,20 @@ const remote = buildRemote(rcRt.texture, rcTex); remote.visible = false;
 const world = new World();
 const input = new Input();
 const sound = new MotorSound();
-let droneIdx = 0, view: View = 'fpv';
+let lobby: Awaited<ReturnType<typeof createLobby>> | null = null;
+let briefing: Briefing | null = null;
+let state: AppState = 'boot';
+let cfg: LaunchConfig = { droneIdx: 0, missionIdx: 0, view: 'fpv', waypoints: [] };
+let view: View = 'fpv';
 const fm = new FlightModel(DRONES[0]);
+let mission: Mission | null = null;
 let droneMesh: DroneModel | null = null;
-let gimbal = 0;           // camera pitch for stabilised modes, degrees
-let running = false;      // in flight (not menu)
+let gimbal = 0;
 let autoRthDone = false;
-const pilot = new THREE.Vector3();          // where the pilot stands (ground)
+const pilot = new THREE.Vector3();
 const VISUAL_RANGE: Record<string, number> = { avata2: 300, mini4pro: 220, mavic3pro: 400, neo: 140 };
 const los = { visible: true, reason: null as string | null, lostFor: 0, dist: 0 };
 
-// soft contact shadow under the drone: the main depth cue when you watch it from the ground
 const shadowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d')!, gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
 blob.rotation.x = -Math.PI / 2;
@@ -54,28 +66,20 @@ blob.rotation.x = -Math.PI / 2;
 const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent);
 const deviceName = isQuest ? (/Quest 3S/i.test(navigator.userAgent) ? 'Meta Quest 3S' : 'Meta Quest 3') : 'PC';
 let vrSupported = false;
+const startKey = () => isQuest || input.source === 'quest' || input.source === 'gamepad' ? 'A' : 'Enter';
 
-/* ---------- menu ---------- */
-function renderDrones() {
-  $('drones').innerHTML = DRONES.map((d, i) => `
-    <button type="button" class="drone${i === droneIdx ? ' on' : ''}" data-i="${i}" aria-pressed="${i === droneIdx}">
-      <span class="cls">${d.cls}</span><span class="name">${d.name}</span>
-      <span class="specs"><span>${Math.max(...d.modes.map(m => m.vmax))} m/s</span><span>${d.flightTimeMin} min</span><span>${d.modes.map(m => m.id).join(' · ')}</span></span>
-    </button>`).join('');
-  $('drones').querySelectorAll<HTMLButtonElement>('.drone').forEach(b => b.onclick = () => { droneIdx = +b.dataset.i!; renderDrones(); });
-}
-function renderView() {
-  for (const v of ['fpv', 'los'] as View[]) { const b = $(`view-${v}`); b.classList.toggle('on', view === v); b.setAttribute('aria-pressed', String(view === v)); }
+/* ---------- boot screen ---------- */
+function controlRows(): [string, string][] {
+  const src = isQuest || input.source === 'quest' ? 'quest' : input.source === 'gamepad' || [...(navigator.getGamepads?.() ?? [])].some(Boolean) ? 'gamepad' : 'keyboard';
+  return ({
+    keyboard: [['W / S', 'throttle (climb / descend)'], ['A / D', 'yaw'], ['↑ ↓ ← →', 'pitch / roll'], ['Enter', 'take off · land · reset'], ['H', 'return to home'], ['M', 'flight mode'], ['V', 'FPV ↔ line of sight'], ['R / F', 'camera tilt'], ['Esc', 'back to cockpit']],
+    gamepad: [['Left stick', 'throttle · yaw (Mode 2)'], ['Right stick', 'pitch · roll'], ['A', 'take off · land · reset'], ['B', 'return to home'], ['X', 'flight mode'], ['Y', 'FPV ↔ line of sight'], ['LB / RB', 'camera tilt'], ['Esc', 'back to cockpit']],
+    quest: [['Left stick', 'throttle · yaw (Mode 2)'], ['Right stick', 'pitch · roll'], ['A', 'take off · land · reset'], ['B', 'return to home'], ['X', 'flight mode'], ['Y', 'FPV ↔ line of sight'], ['Grip L / R', 'camera tilt · both = recenter']]
+  } as Record<string, [string, string][]>)[src];
 }
 function controlsHelp() {
-  const src = input.source === 'keyboard' ? ([...(navigator.getGamepads?.() ?? [])].some(Boolean) ? 'gamepad' : 'keyboard') : input.source;
-  const rows: Record<string, [string, string][]> = {
-    keyboard: [['W / S', 'throttle (climb / descend)'], ['A / D', 'yaw'], ['↑ ↓ ← →', 'pitch / roll'], ['Enter', 'take off · land · reset'], ['H', 'return to home'], ['M', 'change flight mode'], ['V', 'FPV ↔ line of sight'], ['R / F', 'camera tilt'], ['Esc', 'menu']],
-    gamepad: [['Left stick', 'throttle · yaw (Mode 2)'], ['Right stick', 'pitch · roll'], ['A', 'take off · land · reset'], ['B', 'return to home'], ['X', 'change flight mode'], ['Y', 'FPV ↔ line of sight'], ['LB / RB', 'camera tilt'], ['Esc', 'menu']],
-    quest: [['Left stick', 'throttle · yaw (Mode 2)'], ['Right stick', 'pitch · roll'], ['A', 'take off · land · reset'], ['B', 'return to home'], ['X', 'change flight mode'], ['Y', 'FPV ↔ line of sight'], ['Grip L / R', 'camera tilt · both = recenter']]
-  };
-  const r = isQuest ? rows.quest : rows[src];
-  $('controls').innerHTML = `<div class="ctitle">Controls · ${isQuest ? 'Quest controllers' : src === 'gamepad' ? 'Gamepad' : 'Keyboard'}</div>` + r.map(([k, v]) => `<div class="row"><kbd>${k}</kbd><span>${v}</span></div>`).join('');
+  const rows = controlRows(), name = isQuest ? 'Quest controllers' : rows[0][0] === 'Left stick' ? 'Gamepad' : 'Keyboard';
+  $('controls').innerHTML = `<div class="ctitle">Controls · ${name}</div>` + rows.map(([k, v]) => `<div class="row"><kbd>${k}</kbd><span>${v}</span></div>`).join('');
 }
 function tickClock() {
   const n = new Date();
@@ -83,28 +87,46 @@ function tickClock() {
   $('date').textContent = n.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 setInterval(tickClock, 1000); tickClock();
-addEventListener('gamepadconnected', controlsHelp); addEventListener('gamepaddisconnected', controlsHelp);
-$('view-fpv').onclick = () => { view = 'fpv'; renderView(); };
-$('view-los').onclick = () => { view = 'los'; renderView(); };
+addEventListener('gamepadconnected', () => { controlsHelp(); lobby?.setDeviceLabel(isQuest ? deviceName.toUpperCase() : 'PC · GAMEPAD'); });
+addEventListener('gamepaddisconnected', controlsHelp);
 
+/* ---------- state changes ---------- */
+function goLobby() {
+  endFlight();
+  state = 'lobby'; $('menu').hidden = true; $('chip').hidden = renderer.xr.isPresenting; $('vr2').hidden = !vrSupported || renderer.xr.isPresenting;
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  lobby!.enter();
+}
+function onLaunch(c: LaunchConfig) {
+  cfg = c; lobby!.leave(); state = 'briefing'; $('chip').hidden = true; $('vr2').hidden = true;
+  const m = createMission(c.missionIdx, c.waypoints);
+  briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, controls: controlRows().slice(0, 7), startKey: startKey() });
+  mission = m; launchQueued = false;
+}
 function startFlight() {
-  const d = DRONES[droneIdx];
-  fm.setDrone(d); world.setDroneRadius(d.radius); resetToHome(); gimbal = 0; autoRthDone = false; fm.battery = 1;
+  const d = DRONES[cfg.droneIdx];
+  view = mission?.forceView ?? cfg.view;
+  fm.setDrone(d); world.setDroneRadius(d.radius); resetToHome(); gimbal = 0; fm.battery = 1;
   droneCam.fov = d.vfov; droneCam.updateProjectionMatrix();
   if (droneMesh) world.scene.remove(droneMesh);
   droneMesh = buildDrone(d.id); world.scene.add(droneMesh);
   if (!blob.parent) world.scene.add(blob);
   blob.scale.setScalar(d.radius * 4.5);
   placePilot();
-  $('menu').hidden = true; running = true; sound.start();
+  if (!mission) mission = createMission(0, []);
+  world.scene.add(mission.group); mission.setup(env());
+  autoRthDone = mission.id === 'last10';
+  state = 'flight'; needRecenter = true; sound.start();
 }
-function showMenu() { running = false; $('menu').hidden = false; sound.update(0, false, 0); controlsHelp(); renderView(); }
+function endFlight() {
+  if (mission) { mission.dispose(); mission = null; }
+  sound.update(0, false, 0);
+}
 function resetToHome() {
   world.body.setTranslation(world.home, true); world.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
   fm.reset(world.home, world.homeYaw); fm.home.copy(world.home);
   los.lostFor = 0;
 }
-/** Pilot stands a few metres behind the take-off pad, on open street with a clear view of it. */
 function placePilot() {
   const h = world.home; let best: THREE.Vector3 | null = null;
   for (const r of [6, 8, 5, 10]) for (let k = 0; k < 16 && !best; k++) {
@@ -117,17 +139,22 @@ function placePilot() {
   losCam.position.copy(pilot).add(new THREE.Vector3(0, 1.7, 0)); losCam.lookAt(h);
   rig.position.copy(pilot); rig.rotation.set(0, Math.atan2(-(h.x - pilot.x), -(h.z - pilot.z)), 0); rig.updateMatrixWorld(true);
 }
-$('fly').onclick = startFlight;
-$('vr').onclick = async () => {
+function env(): MissionEnv { return { world, fm, los, pilotEye: pilot.clone().add(new THREE.Vector3(0, 1.7, 0)), droneCam, view }; }
+
+$('fly').onclick = () => { sound.start(); goLobby(); };
+async function enterVR() {
   try {
     const session = await navigator.xr!.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
-    await renderer.xr.setSession(session);
-    startFlight(); needRecenter = true;
-    session.addEventListener('end', () => { input.xrGamepads = {}; remote.visible = false; showMenu(); });
+    await renderer.xr.setSession(session); sound.start();
+    if (state === 'boot') goLobby(); else { $('chip').hidden = true; $('vr2').hidden = true; }
+    session.addEventListener('end', () => { input.xrGamepads = {}; remote.visible = false; if (state !== 'boot') goLobby(); });
   } catch (e) { $('vr').textContent = 'VR could not start'; console.warn(e); }
-};
-addEventListener('keydown', e => { if (e.code === 'Escape' && running) showMenu(); });
+}
+$('vr').onclick = enterVR; $('vr2').onclick = enterVR;
+addEventListener('keydown', e => { if (e.code === 'Escape' && (state === 'flight' || state === 'briefing')) goLobby(); });
+canvas.addEventListener('click', () => { if (state === 'briefing') launchQueued = true; });
 let needRecenter = false;
+let launchQueued = false;
 
 // VR controller grips: the remote is held between both hands
 const grips: { obj: THREE.Group; hand: string }[] = [];
@@ -140,12 +167,17 @@ rig.add(remote);
 
 /* ---------- boot ---------- */
 (async () => {
-  renderDrones(); renderView(); controlsHelp();
+  controlsHelp();
   $('device').textContent = deviceName;
   try { vrSupported = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); } catch { vrSupported = false; }
   $('vr').hidden = !vrSupported; if (isQuest && vrSupported) { $('vr').classList.add('primary'); $('fly').classList.remove('primary'); }
   await Promise.all(['700 30px "JetBrains Mono"', '600 28px "Space Grotesk"'].map(f => document.fonts.load(f).catch(() => null)));
-  await world.load((p, m) => { $<HTMLElement>('bar').style.width = `${Math.round(p * 100)}%`; $('loadmsg').textContent = m; });
+  const bar = (p: number, m: string) => { $<HTMLElement>('bar').style.width = `${Math.round(p * 100)}%`; $('loadmsg').textContent = m; };
+  await world.load((p, m) => bar(p * 0.85, m));
+  bar(0.9, 'Building the cockpit');
+  lobby = await createLobby(renderer, { city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch });
+  briefing = new Briefing(renderer);
+  bar(1, 'Ready');
   $('loading').hidden = true; $('start').hidden = false;
   resize();
   renderer.setAnimationLoop(frame);
@@ -158,28 +190,29 @@ const before = new THREE.Vector3(), after = new THREE.Vector3(), dir = new THREE
 const WIND_DIR = new THREE.Vector3(1, 0, -1).normalize(); // from SW, blowing to NE
 
 function simulate(dt: number) {
-  input.update();
   const s = input.sticks;
-  if (input.justPressed('arm')) {
+  if (mission?.done) {
+    if (input.justPressed('arm')) { goLobby(); return; }
+  } else if (input.justPressed('arm')) {
     if (fm.phase === 'crashed') resetToHome();
     else if (fm.phase === 'landed') fm.arm();
     else if (!fm.manual) fm.phase = fm.phase === 'landing' ? 'flying' : 'landing';
   }
-  if (input.justPressed('rth') && !fm.manual && fm.armed) fm.phase = fm.phase === 'rth' ? 'flying' : 'rth';
+  if (input.justPressed('rth') && !fm.manual && fm.armed && mission?.id !== 'last10') fm.phase = fm.phase === 'rth' ? 'flying' : 'rth';
   if (input.justPressed('mode')) fm.cycleMode();
-  if (input.justPressed('view')) { view = view === 'fpv' ? 'los' : 'fpv'; renderView(); if (view === 'fpv') needRecenter = true; }
+  if (input.justPressed('view') && !mission?.forceView) { view = view === 'fpv' ? 'los' : 'fpv'; if (view === 'fpv') needRecenter = true; }
   if (input.justPressed('recenter')) needRecenter = true;
   const tiltDir = (input.isHeld('tiltUp') ? 1 : 0) - (input.isHeld('tiltDown') ? 1 : 0);
   if (fm.manual) fm.camTilt = THREE.MathUtils.clamp(fm.camTilt + tiltDir * 30 * dt, 0, 50);
   else gimbal = THREE.MathUtils.clamp(gimbal + tiltDir * 30 * dt, -90, 20);
 
-  // wind with slow gusts
-  windT += dt; const wspd = 4.2 + 1.6 * Math.sin(windT * 0.21) + 0.9 * Math.sin(windT * 0.83 + 1.3);
+  windT += dt; const wspd = (4.2 + 1.6 * Math.sin(windT * 0.21) + 0.9 * Math.sin(windT * 0.83 + 1.3)) * (mission?.windScale ?? 1);
   fm.wind.copy(WIND_DIR).multiplyScalar(wspd);
 
   const p0 = world.body.translation(); fm.pos.set(p0.x, p0.y, p0.z);
   const ground = world.groundBelow(fm.pos), onGround = fm.pos.y - ground < fm.drone.radius + 0.08;
   warnings = [];
+  const wasCrashed = fm.phase === 'crashed';
 
   acc += dt; let n = 0;
   while (acc >= STEP && n++ < 10) {
@@ -188,12 +221,10 @@ function simulate(dt: number) {
     fm.step(STEP, s, ground, onGround);
 
     if (fm.armed) {
-      // street circuit: no-fly over voids (geofence) and an altitude ceiling
       const look = 0.6;
       if (Number.isNaN(world.groundAt(fm.pos.x + fm.vel.x * look, fm.pos.z))) { fm.vel.x *= -0.2; addWarn('BOUNDARY'); }
       if (Number.isNaN(world.groundAt(fm.pos.x, fm.pos.z + fm.vel.z * look))) { fm.vel.z *= -0.2; addWarn('BOUNDARY'); }
       if (fm.pos.y - fm.home.y >= ALT_LIMIT && fm.vel.y > 0) { fm.vel.y = 0; addWarn('ALTITUDE LIMIT'); }
-      // obstacle braking for camera drones in C/N
       if (fm.drone.avoidance && !fm.manual && fm.mode.id !== 'S') {
         const v = fm.vel.length();
         if (v > 0.5) {
@@ -214,7 +245,6 @@ function simulate(dt: number) {
   }
   const p1 = world.body.translation(); fm.pos.set(p1.x, p1.y, p1.z);
 
-  // line of sight: is there a clear ray from the pilot's eyes to the drone, and is it within visual range?
   const eye = tmp.copy(pilot).add(new THREE.Vector3(0, 1.7, 0)), toD = fm.pos.clone().sub(eye); los.dist = toD.length();
   const blocked = world.probe(eye, toD.clone().normalize(), los.dist) < los.dist - fm.drone.radius * 2;
   const range = VISUAL_RANGE[fm.drone.id] ?? 250;
@@ -222,14 +252,18 @@ function simulate(dt: number) {
   los.lostFor = los.visible ? 0 : los.lostFor + dt;
   if (view === 'los' && !los.visible && fm.armed) addWarn(los.lostFor > 3 ? 'VLOS RULE BROKEN' : 'CAN’T SEE DRONE');
 
-  // low battery: warn, then automatic return like the real thing
+  if (mission && !mission.done) {
+    if (!wasCrashed && fm.phase === 'crashed') mission.onCrash(env());
+    else mission.update(dt, env());
+  }
+
   if (fm.battery < 0.2 && fm.armed) addWarn('LOW BATTERY');
   if (fm.battery < 0.15 && fm.armed && !fm.manual && !autoRthDone && fm.phase === 'flying') { fm.phase = 'rth'; autoRthDone = true; }
   if (fm.phase === 'rth') addWarn('RETURNING HOME');
   if (fm.phase === 'crashed') addWarn('CRASHED');
 
-  const key = isQuest || input.source === 'quest' || input.source === 'gamepad' ? 'A' : 'Enter';
-  banner = fm.phase === 'landed' ? `Press ${key} to ${fm.manual ? 'arm' : 'take off'}` : fm.phase === 'crashed' ? `Crashed · press ${key} to reset at home` : fm.phase === 'landing' ? `Landing · press ${key} to cancel` : null;
+  const key = startKey();
+  banner = mission?.done ? null : fm.phase === 'landed' ? `Press ${key} to ${fm.manual ? 'arm' : 'take off'}` : fm.phase === 'crashed' ? `Crashed · press ${key} to reset at home` : fm.phase === 'landing' ? `Landing · press ${key} to cancel` : null;
   sound.update(fm.throttleOut, fm.armed, Math.min(1, fm.drone.mass / 1));
 }
 function addWarn(w: string) { if (!warnings.includes(w)) warnings.push(w); }
@@ -248,11 +282,21 @@ function updateDroneMesh(dt: number) {
   blob.position.set(fm.pos.x, gnd + 0.03, fm.pos.z); (blob.material as THREE.MeshBasicMaterial).opacity = THREE.MathUtils.clamp(1 - hgt / 25, 0, 1);
 }
 const lookQ = new THREE.Quaternion(), lookM = new THREE.Matrix4();
-function updateLosCam(dt: number) { // the pilot's head follows the drone, with a human-like lag
+function updateLosCam(dt: number) {
   lookM.lookAt(losCam.position, fm.pos, THREE.Object3D.DEFAULT_UP); lookQ.setFromRotationMatrix(lookM);
   losCam.quaternion.slerp(lookQ, 1 - Math.exp(-dt * 5));
 }
 
+function extras(cam: THREE.Camera): Extras {
+  const e = env(), t = mission?.target() ?? null;
+  let target: Extras['target'] = null;
+  if (t) {
+    const v = t.clone().project(cam), behind = v.z > 1, x = behind ? -v.x : v.x, y = behind ? -v.y : v.y;
+    const k = behind ? 3 / Math.max(Math.abs(x), Math.abs(y), 0.001) : 1;
+    target = { x: x * k * 0.5 + 0.5, y: -y * k * 0.5 + 0.5, on: !behind && Math.abs(x) <= 1 && Math.abs(y) <= 1, dist: t.distanceTo(fm.pos) };
+  }
+  return { objective: mission ? mission.objective(e) : null, target, flash: mission instanceof PhotoHunt ? mission.flashAmount : 0, result: mission?.result ?? null, resultKey: startKey() };
+}
 function hudState(): HudState {
   const e = new THREE.Euler().setFromQuaternion(droneCam.quaternion, 'YXZ');
   const pxPerRad = 540 / Math.tan(THREE.MathUtils.degToRad(droneCam.fov / 2));
@@ -262,17 +306,17 @@ function hudState(): HudState {
     heading: fm.heading(), battery: fm.battery, flightTime: fm.flightTime, mode: fm.mode.id, modeName: fm.mode.name, manual: fm.manual,
     phase: fm.phase, roll: fm.manual ? e.z : fm.tiltR, pitch: fm.manual ? e.x * pxPerRad / 600 : 0, drone: fm.drone.name,
     input: isQuest ? 'Quest controllers' : input.source === 'gamepad' ? 'Gamepad' : 'Keyboard',
-    warnings, banner, wind: fm.wind.length(), signal: THREE.MathUtils.clamp(1 - home / 1500, 0.2, 1), camTilt: fm.manual ? fm.camTilt : gimbal
+    warnings, banner, wind: fm.wind.length(), signal: THREE.MathUtils.clamp(1 - home / 1500, 0.2, 1), camTilt: fm.manual ? fm.camTilt : gimbal,
+    extras: extras(droneCam)
   };
 }
 
-/** Remote held between both controllers; sticks mirror the pilot's thumbs. */
 const gL = new THREE.Vector3(), gR = new THREE.Vector3(), bx = new THREE.Vector3(), by = new THREE.Vector3(), bz = new THREE.Vector3(), bm = new THREE.Matrix4();
 function updateRemote() {
   const L = grips.find(g => g.hand === 'left')?.obj, R = grips.find(g => g.hand === 'right')?.obj;
   remote.visible = view === 'los' && !!L && !!R;
   if (!remote.visible || !L || !R) return;
-  gL.copy(L.position); gR.copy(R.position);           // rig-local
+  gL.copy(L.position); gR.copy(R.position);
   bx.subVectors(gR, gL).normalize(); by.set(0, 1, 0); bz.crossVectors(bx, by).normalize(); by.crossVectors(bz, bx);
   bm.makeBasis(bx, by, bz); remote.quaternion.setFromRotationMatrix(bm); remote.rotateX(0.35);
   remote.position.copy(gL).add(gR).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.02, 0));
@@ -290,7 +334,21 @@ function frame() {
     for (const src of session.inputSources) if (src.gamepad) pads[src.handedness as 'left' | 'right'] = src.gamepad;
     input.xrGamepads = pads;
   }
-  if (running) simulate(dt);
+  input.update();
+
+  if (state === 'boot' || state === 'lobby') { if (lobby && state === 'lobby') lobby.update(); else renderer.render(world.scene, droneCam); return; }
+  if (state === 'briefing') {
+    briefing!.update(dt, innerWidth / innerHeight);
+    if (input.justPressed('arm')) launchQueued = true;              // pressed early: launch as soon as checks finish
+    if (briefing!.ready && launchQueued) { launchQueued = false; startFlight(); }
+    renderer.render(briefing!.scene, briefing!.camera);
+    hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+    return;
+  }
+
+  simulate(dt);
+  if (state !== 'flight') return;          // simulate() may have sent us back to the lobby
+  if (xr && mission?.done) view = 'fpv';   // results read best on the goggles screen
   updateDroneCam(); updateDroneMesh(dt); updateLosCam(dt);
 
   if (xr) {
@@ -310,13 +368,12 @@ function frame() {
     }
   } else {
     const W = innerWidth, H = innerHeight;
-    if (view === 'fpv' || !running) {
+    if (view === 'fpv') {
       if (droneCam.aspect !== W / H) { droneCam.aspect = W / H; droneCam.updateProjectionMatrix(); }
       if (droneMesh) droneMesh.visible = false;
       renderer.render(world.scene, droneCam);
-      if (running) drawHud(hudCtx, hudCanvas.width, hudCanvas.height, hudState()); else hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+      drawHud(hudCtx, hudCanvas.width, hudCanvas.height, hudState());
     } else {
-      // pilot's eyes full screen + the remote's screen as picture-in-picture
       if (losCam.aspect !== W / H) { losCam.aspect = W / H; losCam.updateProjectionMatrix(); }
       if (droneMesh) droneMesh.visible = true;
       renderer.render(world.scene, losCam);
@@ -332,12 +389,12 @@ function frame() {
       drawLosHud(hudCtx, hudCanvas.width, hudCanvas.height, {
         visible: los.visible, reason: los.reason, lostFor: los.lostFor, dist: los.dist, alt: fm.pos.y - fm.home.y, hs: fm.speedH(), battery: fm.battery,
         marker: { x: sx * W * dpr, y: sy * H * dpr, on }, pip: { x: px * dpr, y: (H - py - ph) * dpr, w: pw * dpr, h: ph * dpr },
-        mode: `${fm.mode.id} · ${fm.mode.name.toUpperCase()}`, warnings: warnings.filter(w => !w.startsWith('CAN') && !w.startsWith('VLOS')), banner, range: VISUAL_RANGE[fm.drone.id] ?? 250
+        mode: `${fm.mode.id} · ${fm.mode.name.toUpperCase()}`, warnings: warnings.filter(w => !w.startsWith('CAN') && !w.startsWith('VLOS')), banner, range: VISUAL_RANGE[fm.drone.id] ?? 250,
+        extras: extras(losCam)
       });
     }
   }
 }
-/** Drone camera into a render target (drone body hidden so the lens doesn't see itself). */
 function renderFeed(rt: THREE.WebGLRenderTarget) {
   if (droneMesh) droneMesh.visible = false;
   renderer.xr.enabled = false;
@@ -347,11 +404,13 @@ function renderFeed(rt: THREE.WebGLRenderTarget) {
 }
 
 function resize() {
+  if (renderer.xr.isPresenting) return;
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); droneCam.aspect = w / h; droneCam.updateProjectionMatrix(); losCam.aspect = w / h; losCam.updateProjectionMatrix();
   const dpr = Math.min(devicePixelRatio, 2); hudCanvas.width = Math.round(w * dpr); hudCanvas.height = Math.round(h * dpr);
+  lobby?.resize();
 }
 addEventListener('resize', resize);
 
-// test hook: lets automated checks read the sim state
-(window as unknown as { __sim: unknown }).__sim = { fm, world, los, setView: (v: View) => { view = v; renderView(); } };
+// test hook: lets automated checks read and drive the sim
+(window as unknown as { __sim: unknown }).__sim = { fm, world, los, get state() { return state; }, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };

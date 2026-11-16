@@ -21,19 +21,14 @@
 
     <section class="panel">
       <div class="eyebrow">Detected device · <span id="device">PC</span></div>
-      <h1>Pick your drone</h1>
-      <div id="drones" class="drones"></div>
-
+      <h1>Your cockpit is warming up</h1>
+      <p class="lede">Pick a drone, plan a route on the city table, choose a mission and launch. Everything happens inside the cockpit, in VR or on this screen.</p>
       <div id="loading" class="loading">
         <div class="bar"><i id="bar"></i></div>
         <div id="loadmsg">Starting</div>
       </div>
-      <div class="viewpick" role="group" aria-label="View">
-        <button id="view-fpv" type="button" class="on" aria-pressed="true"><b>FPV goggles</b><span>See through the drone's camera</span></button>
-        <button id="view-los" type="button" aria-pressed="false"><b>Line of sight</b><span>Stand on the street, watch the drone, remote screen in hand</span></button>
-      </div>
       <div id="start" class="start" hidden>
-        <button id="fly" type="button" class="primary">Fly on this screen</button>
+        <button id="fly" type="button" class="primary">Open the cockpit</button>
         <button id="vr" type="button" hidden>Enter VR</button>
       </div>
       <p class="note">Street circuit · altitude limit 32 m · geofence over open blocks. Real local time drives the light.</p>
@@ -41,6 +36,8 @@
 
     <aside id="controls" class="controls"></aside>
   </main>
+  <div id="chip" class="chip" hidden><b>Drag</b> to look around. <b>Click</b> the city table to add a waypoint, drag a pin to move it, drag its arrow to change height, scroll to zoom. Pick a drone on your left, a mission on your right, then lift the red cover and press <b>LAUNCH</b>. <kbd>Ctrl Z</kbd> undo</div>
+  <button id="vr2" type="button" class="vr2" hidden>Enter VR</button>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

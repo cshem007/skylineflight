@@ -17,7 +17,25 @@ Open the GitHub Pages link in the Quest browser or on a PC. The app detects the 
 | Return to home | H | B | B |
 | Flight mode | M | X | X |
 | Camera tilt | R / F | LB / RB | grip L / R |
-| Menu | Esc | — | exit VR |
+| Back to cockpit | Esc | Esc | exit VR |
+
+## How a session flows
+
+1. **Cockpit lobby** (360°, VR or PC): pick a drone on the left display, a mission on the right board, plan a route on the holographic city table (click to add, drag pins, drag the arrow for height, planner panel for speed/action), choose FPV or line of sight, lift the red cover and press LAUNCH.
+2. **Pre-flight briefing:** the drone turning on a pad, its capabilities and modes, the mission objective, your controls, and the pre-flight checks.
+3. **Flight** with the mission running: objective box, target pointer, 3D markers in the world.
+4. **Results** card with score and your best (saved per mission and drone in this browser). A / Enter returns to the cockpit. Esc leaves a flight early.
+
+## Missions
+
+| Mission | Goal | Score |
+|---|---|---|
+| Free ride | Fly anywhere; land to log the flight | distance flown |
+| Gate run | Rings in order along the streets (course built from the street map, 8–12 gates) | time (lower is better) |
+| Photo hunt | Frame 5 rooftop beacons in the centre of the shot and hold still until the shutter fires | framing + steadiness |
+| Line of sight | Controller view only; touch 5 checkpoints while keeping the drone visible; 10 s out of sight fails | time + sight penalty |
+| Last 10 % | Start 200+ m out with 12 % battery and strong gusts; land on the home pad | battery left + landing accuracy |
+| My route | Fly the waypoints planned in the lobby; Hover / Photo points need you to hold position | accuracy + time |
 
 ## What is simulated
 
