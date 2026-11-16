@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Skyline FPV</title>
+  <meta name="description" content="FPV drone simulator for Meta Quest 3 / 3S and PC.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap">
+</head>
+<body>
+  <canvas id="gl" aria-label="Drone camera view"></canvas>
+  <canvas id="hud" aria-hidden="true"></canvas>
+
+  <main id="menu">
+    <header class="top">
+      <div class="brand"><svg width="26" height="26" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7" cy="7" r="4"/><circle cx="21" cy="7" r="4"/><circle cx="7" cy="21" r="4"/><circle cx="21" cy="21" r="4"/><path d="M10 10l8 8M18 10l-8 8"/></svg><b>SKYLINE FPV</b><span>flight simulator</span></div>
+      <div class="time"><div id="clock">--:--:--</div><div id="date"></div></div>
+    </header>
+
+    <section class="panel">
+      <div class="eyebrow">Detected device · <span id="device">PC</span></div>
+      <h1>Pick your drone</h1>
+      <div id="drones" class="drones"></div>
+
+      <div id="loading" class="loading">
+        <div class="bar"><i id="bar"></i></div>
+        <div id="loadmsg">Starting</div>
+      </div>
+      <div id="start" class="start" hidden>
+        <button id="fly" type="button" class="primary">Fly on this screen</button>
+        <button id="vr" type="button" hidden>Enter VR · goggles view</button>
+      </div>
+      <p class="note">Street circuit · altitude limit 32 m · geofence over open blocks. Real local time drives the light.</p>
+    </section>
+
+    <aside id="controls" class="controls"></aside>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
