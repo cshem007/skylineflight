@@ -28,6 +28,7 @@ export interface Drone {
   twr: number;           // thrust-to-weight in manual
   maxRate: number;       // deg/s at full stick in manual
   avoidance: boolean;    // obstacle braking in C/N modes
+  cells: number;         // LiPo / Li-ion cells in series (4S = 4)
   modes: FlightMode[];
 }
 
@@ -37,7 +38,7 @@ const A = (id: string, name: string, vmax: number, vUp: number, vDown: number, y
 export const DRONES: Drone[] = [
   {
     id: 'avata2', name: 'Avata 2', cls: 'FPV · Cinewhoop', mass: 0.377, radius: 0.13,
-    flightTimeMin: 23, windResist: 10.7, vfov: 95, camTilt: 18, twr: 4.2, maxRate: 720, avoidance: false,
+    flightTimeMin: 23, windResist: 10.7, vfov: 95, camTilt: 18, twr: 4.2, maxRate: 720, avoidance: false, cells: 4,
     modes: [
       A('N', 'Normal', 8, 6, 6, 120, 7),
       A('S', 'Sport', 16, 9, 9, 180, 12),
@@ -46,17 +47,17 @@ export const DRONES: Drone[] = [
   },
   {
     id: 'mini4pro', name: 'Mini 4 Pro', cls: 'Camera · sub-250 g', mass: 0.249, radius: 0.16,
-    flightTimeMin: 34, windResist: 10.7, vfov: 52, camTilt: 0, twr: 2.6, maxRate: 300, avoidance: true,
+    flightTimeMin: 34, windResist: 10.7, vfov: 52, camTilt: 0, twr: 2.6, maxRate: 300, avoidance: true, cells: 2,
     modes: [A('C', 'Cine', 5, 3, 3, 40, 3), A('N', 'Normal', 10, 5, 5, 90, 6), A('S', 'Sport', 16, 5, 5, 150, 9)]
   },
   {
     id: 'mavic3pro', name: 'Mavic 3 Pro', cls: 'Camera · Pro', mass: 0.958, radius: 0.22,
-    flightTimeMin: 43, windResist: 12, vfov: 54, camTilt: 0, twr: 2.4, maxRate: 250, avoidance: true,
+    flightTimeMin: 43, windResist: 12, vfov: 54, camTilt: 0, twr: 2.4, maxRate: 250, avoidance: true, cells: 4,
     modes: [A('C', 'Cine', 5, 3, 3, 40, 2.5), A('N', 'Normal', 15, 6, 6, 90, 5), A('S', 'Sport', 21, 8, 6, 150, 7.5)]
   },
   {
     id: 'neo', name: 'Neo', cls: 'Micro · Palm', mass: 0.135, radius: 0.1,
-    flightTimeMin: 18, windResist: 8, vfov: 72, camTilt: 10, twr: 3.2, maxRate: 600, avoidance: false,
+    flightTimeMin: 18, windResist: 8, vfov: 72, camTilt: 10, twr: 3.2, maxRate: 600, avoidance: false, cells: 2,
     modes: [
       A('N', 'Normal', 8, 2, 2, 90, 5),
       A('S', 'Sport', 12, 4, 4, 140, 8),

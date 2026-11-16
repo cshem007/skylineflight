@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Drone, FlightMode } from './drones';
 import type { Sticks } from './input';
+import { settings } from './settings';
 
 const G = 9.81;
 const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler();
@@ -26,6 +27,10 @@ export class FlightModel {
   wind = new THREE.Vector3();
   home = new THREE.Vector3();
   camTilt = 0;                     // deg
+  voltage = 0;                     // pack voltage under load
+  cellV = 4.2;                     // per-cell voltage under load
+  power = 1;                       // 0.4..1: available power, drops as the battery sags
+  washing = 0;                     // 0..1: how hard we are falling through our own downwash
   private landedFor = 0;
 
   constructor(drone: Drone) { this.drone = drone; this.camTilt = drone.camTilt; }
@@ -34,7 +39,15 @@ export class FlightModel {
   get manual() { return this.mode.kind === 'manual'; }
   get armed() { return this.phase !== 'landed' && this.phase !== 'crashed'; }
 
-  setDrone(d: Drone) { this.drone = d; this.modeIdx = Math.max(0, d.modes.findIndex(m => m.id === 'N')); this.camTilt = d.camTilt; }
+  setDrone(d: Drone) { this.drone = d; this.modeIdx = Math.max(0, d.modes.findIndex(m => m.id === 'N')); this.camTilt = settings.v.uptilt >= 0 ? settings.v.uptilt : d.camTilt; this.updateBattery(); }
+
+  /** Li-ion/LiPo model: open-circuit voltage falls with charge, and sags under load (more when nearly empty). */
+  updateBattery() {
+    const soc = this.battery, ocv = 3.4 + 0.8 * soc - 0.25 * Math.exp(-soc * 12);
+    const sag = 0.32 * this.throttleOut * this.throttleOut * (1 + (1 - soc));
+    this.cellV = ocv - sag; this.voltage = this.cellV * this.drone.cells;
+    this.power = Math.sqrt(THREE.MathUtils.clamp((this.cellV - 3.0) / 1.2, 0.16, 1));
+  }
   cycleMode() {
     const was = this.manual; this.modeIdx = (this.modeIdx + 1) % this.drone.modes.length;
     if (was && !this.manual) { // leaving manual: capture heading from attitude
@@ -60,12 +73,13 @@ export class FlightModel {
       return;
     }
     this.flightTime += dt;
-    if (this.manual) this.stepManual(dt, s); else this.stepAssisted(dt, s, ground, onGround);
+    if (this.manual) this.stepManual(dt, s, this.pos.y - ground); else this.stepAssisted(dt, s, ground, onGround);
 
     // battery: hover draw scales with throttle, a little extra for aggressive flying
     const drain = (0.55 + 0.6 * this.throttleOut * this.throttleOut) / (this.drone.flightTimeMin * 60 * 0.8);
     this.battery = Math.max(0, this.battery - drain * dt);
     if (this.battery <= 0 && this.phase !== 'landing') this.phase = 'landing';
+    this.updateBattery();
   }
 
   private stepAssisted(dt: number, s: Sticks, ground: number, onGround: boolean) {
@@ -91,7 +105,7 @@ export class FlightModel {
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const target = fwd.multiplyScalar(sp * m.vmax).add(right.multiplyScalar(sr * m.vmax));
     let mag = target.length(); if (mag > m.vmax) target.multiplyScalar(m.vmax / mag);
-    target.y = st >= 0 ? st * m.vUp : st * m.vDown;
+    target.y = st >= 0 ? st * m.vUp * this.power : st * m.vDown;
 
     // GPS position hold leaves a small drift that grows with wind / wind resistance
     const windEffect = this.wind.clone().multiplyScalar(0.12 * Math.min(1.5, this.wind.length() / this.drone.windResist));
@@ -99,7 +113,8 @@ export class FlightModel {
 
     // accelerate toward target, limited by tilt authority
     const hv = new THREE.Vector3(this.vel.x, 0, this.vel.z), ht = new THREE.Vector3(target.x, 0, target.z);
-    const a = ht.sub(hv).multiplyScalar(2.6); mag = a.length(); if (mag > m.accel) a.multiplyScalar(m.accel / mag);
+    const amax = m.accel * (0.5 + 0.5 * this.power);
+    const a = ht.sub(hv).multiplyScalar(2.6); mag = a.length(); if (mag > amax) a.multiplyScalar(amax / mag);
     this.vel.x += a.x * dt; this.vel.z += a.z * dt;
     this.vel.y += THREE.MathUtils.clamp((target.y - this.vel.y) * 3, -8, 8) * dt;
 
@@ -116,11 +131,14 @@ export class FlightModel {
     } else this.landedFor = 0;
   }
 
-  private stepManual(dt: number, s: Sticks) {
-    const d = this.drone, rate = THREE.MathUtils.degToRad(d.maxRate);
+  private stepManual(dt: number, s: Sticks, agl: number) {
+    const d = this.drone, rate = THREE.MathUtils.degToRad(d.maxRate * settings.v.rates);
     // rate mode: sticks command body rates
     const targetRates = new THREE.Vector3(-s.pitch * rate, -s.yaw * rate * 0.7, -s.roll * rate);
     this.rates.lerp(targetRates, 1 - Math.exp(-dt * 25));
+    // prop wash: dropping fast while on the throttle shakes the quad (the classic FPV wobble)
+    this.washing = THREE.MathUtils.clamp((-this.vel.y - 2.5) / 4, 0, 1) * (this.throttleOut > 0.3 ? 1 : 0);
+    if (this.washing > 0) this.rates.add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5) * 0.3, (Math.random() - 0.5)).multiplyScalar(this.washing * 9));
     tmpQ.setFromEuler(tmpE.set(this.rates.x * dt, this.rates.y * dt, this.rates.z * dt, 'YXZ'));
     this.quat.multiply(tmpQ).normalize();
 
@@ -128,7 +146,8 @@ export class FlightModel {
     const hover = Math.pow(1 / d.twr, 1 / 1.4);
     const thr = THREE.MathUtils.clamp(s.throttle >= 0 ? hover + (1 - hover) * s.throttle : hover * (1 + s.throttle), 0, 1);
     this.throttleOut = thr;
-    const thrust = Math.pow(thr, 1.4) * d.twr * G;                 // acceleration along body up
+    const groundEffect = 1 + 0.22 * THREE.MathUtils.clamp(1 - agl / (d.radius * 5), 0, 1);  // extra lift close to the ground
+    const thrust = Math.pow(thr, 1.4) * d.twr * G * this.power * groundEffect;  // acceleration along body up
     const up = tmpV.set(0, 1, 0).applyQuaternion(this.quat);
     const air = this.vel.clone().sub(this.wind);
     const c = (d.twr * G * 0.75) / (this.mode.vmax * this.mode.vmax); // drag so top speed ≈ spec

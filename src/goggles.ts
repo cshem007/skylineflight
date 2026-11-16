@@ -9,6 +9,7 @@ export class Goggles {
   hudCanvas = document.createElement('canvas');
   hudTex: THREE.CanvasTexture;
   private screen = new THREE.Group();
+  private vid: THREE.Mesh; private hud: THREE.Mesh; private frame: THREE.Mesh;
 
   constructor() {
     this.rt = new THREE.WebGLRenderTarget(1920, 1080, { samples: 4, colorSpace: THREE.SRGBColorSpace });
@@ -16,18 +17,30 @@ export class Goggles {
     this.hudTex = new THREE.CanvasTexture(this.hudCanvas); this.hudTex.colorSpace = THREE.SRGBColorSpace;
     this.scene.background = new THREE.Color(0x020305);
 
-    // slightly curved screen, ~60° wide at 2 m
-    const W = 2.4, Hh = W * 9 / 16, geo = new THREE.CylinderGeometry(2.2, 2.2, Hh, 64, 1, true, Math.PI - W / 4.4, W / 2.2);
-    geo.scale(-1, 1, 1); // inside face
-    const vid = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.rt.texture, toneMapped: false }));
-    const hud = new THREE.Mesh(geo.clone().scale(0.995, 1, 0.995), new THREE.MeshBasicMaterial({ map: this.hudTex, transparent: true, toneMapped: false, depthWrite: false }));
-    hud.renderOrder = 1;
-    // soft frame glow
-    const frame = new THREE.Mesh(new THREE.CylinderGeometry(2.25, 2.25, Hh + 0.12, 64, 1, true, Math.PI - (W + 0.12) / 4.5, (W + 0.12) / 2.25), new THREE.MeshBasicMaterial({ color: 0x0b1620, side: THREE.BackSide }));
-    this.screen.add(frame, vid, hud);
+    this.vid = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ map: this.rt.texture, toneMapped: false }));
+    this.hud = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ map: this.hudTex, transparent: true, toneMapped: false, depthWrite: false }));
+    this.hud.renderOrder = 1;
+    this.frame = new THREE.Mesh(undefined, new THREE.MeshBasicMaterial({ color: 0x0b1620, side: THREE.BackSide }));
+    this.screen.add(this.frame, this.vid, this.hud);
+    this.setScale(1);
     this.scene.add(this.screen);
     const floor = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.44, 64), new THREE.MeshBasicMaterial({ color: 0x1b4e66 }));
     floor.rotation.x = -Math.PI / 2; this.scene.add(floor);
+  }
+
+  /** Render resolution / anti-aliasing of the camera feed (graphics preset). */
+  setQuality(w: number, h: number, samples: number) {
+    if (this.rt.width === w && this.rt.samples === samples) return;
+    this.rt.dispose(); this.rt = new THREE.WebGLRenderTarget(w, h, { samples, colorSpace: THREE.SRGBColorSpace });
+    (this.vid.material as THREE.MeshBasicMaterial).map = this.rt.texture; (this.vid.material as THREE.MeshBasicMaterial).needsUpdate = true;
+  }
+  /** Screen size: a curved screen 2.2 m away; k widens the angle it covers (k = 1 ≈ 62° wide, like FPV goggles). */
+  setScale(k: number) {
+    const R = 2.2, W = 2.4 * k, Hh = W * 9 / 16, arc = W / R;
+    const geo = new THREE.CylinderGeometry(R, R, Hh, 64, 1, true, Math.PI - arc / 2, arc); geo.scale(-1, 1, 1); // inside face
+    for (const m of [this.vid, this.hud, this.frame]) m.geometry.dispose();
+    this.vid.geometry = geo; this.hud.geometry = geo.clone().scale(0.995, 1, 0.995);
+    this.frame.geometry = new THREE.CylinderGeometry(R + 0.05, R + 0.05, Hh + 0.12, 64, 1, true, Math.PI - (arc + 0.06) / 2, arc + 0.06);
   }
 
   /** Put the screen straight ahead of where the pilot is looking now. */

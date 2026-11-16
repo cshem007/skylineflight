@@ -47,6 +47,18 @@ Open the GitHub Pages link in the Quest browser or on a PC. The app detects the 
 - **Street circuit:** 32 m altitude limit and a geofence over the open blocks of the city model.
 - **Real local time** drives sun and sky. Time and date are on every screen.
 
+- **Battery voltage:** per-cell model (Avata 2 / Mavic 3 Pro 4S, Mini 4 Pro / Neo 2S). Voltage sags under load and more when nearly empty; available power drops with it, so a tired pack climbs slower and needs more stick to hover.
+- **Air:** gusts plus turbulence; sheltered low between buildings, stronger above the rooftops. Ground effect near the floor, and prop-wash wobble when you drop fast on the throttle (manual).
+- **Sound and feel:** motors, wind past the airframe, low-battery beeps (faster when critical), gate chime, camera shutter, crash; controller vibration on Quest controllers and gamepads.
+
+## Settings
+
+In the cockpit, turn around to your left. Saved in this browser.
+
+Stick mode (1 / 2) · stick expo · acro rates · FPV uptilt · wind strength · goggles screen size · volume · graphics (Auto / Low / Medium / High) · FPS counter.
+
+Graphics *Auto* picks Low on Quest 3S (72 Hz, strong foveation, 1280×720 camera feed, no shadows), Medium on Quest 3 and High on PC.
+
 Drone specs (speeds, flight times, wind resistance) are DJI's published figures; force and rate values are tuning numbers.
 
 ## Develop

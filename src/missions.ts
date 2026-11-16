@@ -35,6 +35,8 @@ export abstract class Mission {
   done = false;
   result: Result | null = null;
   windScale = 1;
+  /** Things that just happened ('gate', 'photo', 'checkpoint', 'waypoint'): main turns them into sound + vibration. */
+  events: string[] = [];
   /** Called once the world is ready. May move the drone, change battery, etc. */
   setup(_env: MissionEnv) { }
   /** Called every frame while flying. */
@@ -129,7 +131,7 @@ export class GateRun extends Mission {
       const a = this.prev.clone().sub(g.pos).dot(g.n), b = f.pos.clone().sub(g.pos).dot(g.n);
       if (a < 0 && b >= 0) { // crossed the gate plane this frame: where?
         const t = a / (a - b), hit = this.prev.clone().lerp(f.pos, t);
-        if (hit.distanceTo(g.pos) < g.r) { g.split = this.elapsed; this.next++; this.paint(); }
+        if (hit.distanceTo(g.pos) < g.r) { g.split = this.elapsed; this.next++; this.paint(); this.events.push('gate'); }
       }
     }
     this.prev.copy(f.pos);
@@ -177,7 +179,7 @@ export class PhotoHunt extends Mission {
     if (best >= 0 && f.vel.length() < 1.2 && f.armed) this.steady += dt; else this.steady = Math.max(0, this.steady - dt * 2);
     if (best >= 0 && this.steady >= 1.5) {
       const score = Math.round(100 * (1 - off / 0.3) * 0.7 + 30 * Math.max(0, 1 - f.vel.length() / 1.2));
-      this.spots[best].shot = score; this.flash = 1; this.steady = 0;
+      this.spots[best].shot = score; this.flash = 1; this.steady = 0; this.events.push('photo');
       (this.spots[best].mesh.children[0] as THREE.Mesh).material = glow(GREEN);
       (this.spots[best].mesh.children[1] as THREE.Mesh).visible = false;
     }
@@ -211,7 +213,7 @@ export class LineOfSight extends Mission {
   update(dt: number, env: MissionEnv) {
     const f = env.fm; if (!f.armed) return; this.elapsed += dt;
     if (!env.los.visible) this.lost += dt;
-    const p = this.points[this.next]; if (p && p.pos.distanceTo(f.pos) < 3) { this.next++; this.paint(); }
+    const p = this.points[this.next]; if (p && p.pos.distanceTo(f.pos) < 3) { this.next++; this.paint(); this.events.push('checkpoint'); }
     if (this.lost > 10) this.finish(false, 0, [['Out of sight', `${this.lost.toFixed(1)} s`], ['Checkpoints', `${this.next} / ${this.points.length}`]], 'Lost sight too long', false, f.drone.id);
     else if (this.next >= this.points.length && this.points.length) {
       const score = Math.max(0, Math.round(1000 - this.elapsed * 4 - this.lost * 60));
@@ -280,8 +282,8 @@ export class MyRoute extends Mission {
       const d = w.pos.distanceTo(f.pos); w.best = Math.min(w.best, d);
       if (d < this.R) {
         const need = this.holdNeeded(w);
-        if (need === 0) { w.done = true; this.next++; this.paint(); }
-        else if (f.vel.length() < (w.act === 2 ? 1 : 2)) { w.hold += dt; if (w.hold >= need) { w.done = true; this.next++; this.paint(); } }
+        if (need === 0) { w.done = true; this.next++; this.paint(); this.events.push('waypoint'); }
+        else if (f.vel.length() < (w.act === 2 ? 1 : 2)) { w.hold += dt; if (w.hold >= need) { w.done = true; this.next++; this.paint(); this.events.push(w.act === 2 ? 'photo' : 'waypoint'); } }
       } else w.hold = 0;
     }
     if (this.wps.length && this.next >= this.wps.length) {

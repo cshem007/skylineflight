@@ -10,6 +10,7 @@ import { buildDrone, buildRemote, spinProps, type DroneModel } from './models';
 import { createLobby } from './lobby';
 import { Briefing } from './briefing';
 import { createMission, PhotoHunt, type Mission, type MissionEnv, type Waypoint } from './missions';
+import { settings, qualityPreset } from './settings';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -63,10 +64,26 @@ const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMa
 blob.rotation.x = -Math.PI / 2;
 
 /* ---------- device detection ---------- */
-const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent), isQuest3S = /Quest 3S/i.test(navigator.userAgent);
 const deviceName = isQuest ? (/Quest 3S/i.test(navigator.userAgent) ? 'Meta Quest 3S' : 'Meta Quest 3') : 'PC';
 let vrSupported = false;
 const startKey = () => isQuest || input.source === 'quest' || input.source === 'gamepad' ? 'A' : 'Enter';
+
+/* ---------- graphics preset (Settings › Graphics) ---------- */
+function applyQuality() {
+  const q = qualityPreset(isQuest, isQuest3S);
+  if (!renderer.xr.isPresenting) renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
+  goggles.setQuality(q.feed[0], q.feed[1], q.samples);
+  renderer.shadowMap.enabled = q.shadows;
+  renderer.xr.setFoveation(q.foveation);
+  goggles.setScale(settings.v.screen);
+  const session = renderer.xr.getSession() as (XRSession & { supportedFrameRates?: Float32Array; updateTargetFrameRate?: (r: number) => Promise<void> }) | null;
+  if (session?.supportedFrameRates && session.updateTargetFrameRate) {
+    const rates = [...session.supportedFrameRates], want = rates.includes(q.frameRate) ? q.frameRate : rates[0];
+    session.updateTargetFrameRate(want).catch(() => null);
+  }
+}
+settings.onChange(() => { applyQuality(); resize(); });
 
 /* ---------- boot screen ---------- */
 function controlRows(): [string, string][] {
@@ -141,16 +158,17 @@ function placePilot() {
 }
 function env(): MissionEnv { return { world, fm, los, pilotEye: pilot.clone().add(new THREE.Vector3(0, 1.7, 0)), droneCam, view }; }
 
-$('fly').onclick = () => { sound.start(); goLobby(); };
+$('fly').onclick = e => { (e.currentTarget as HTMLElement).blur(); if (state !== 'boot') return; sound.start(); goLobby(); };
 async function enterVR() {
   try {
     const session = await navigator.xr!.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
-    await renderer.xr.setSession(session); sound.start();
+    await renderer.xr.setSession(session); sound.start(); applyQuality();
     if (state === 'boot') goLobby(); else { $('chip').hidden = true; $('vr2').hidden = true; }
     session.addEventListener('end', () => { input.xrGamepads = {}; remote.visible = false; if (state !== 'boot') goLobby(); });
   } catch (e) { $('vr').textContent = 'VR could not start'; console.warn(e); }
 }
-$('vr').onclick = enterVR; $('vr2').onclick = enterVR;
+$('vr').onclick = e => { (e.currentTarget as HTMLElement).blur(); void enterVR(); };
+$('vr2').onclick = e => { (e.currentTarget as HTMLElement).blur(); void enterVR(); };
 addEventListener('keydown', e => { if (e.code === 'Escape' && (state === 'flight' || state === 'briefing')) goLobby(); });
 canvas.addEventListener('click', () => { if (state === 'briefing') launchQueued = true; });
 let needRecenter = false;
@@ -177,6 +195,7 @@ rig.add(remote);
   bar(0.9, 'Building the cockpit');
   lobby = await createLobby(renderer, { city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch });
   briefing = new Briefing(renderer);
+  applyQuality();
   bar(1, 'Ready');
   $('loading').hidden = true; $('start').hidden = false;
   resize();
@@ -188,6 +207,7 @@ const STEP = 1 / 120;
 let acc = 0, last = performance.now(), windT = 0, warnings: string[] = [], banner: string | null = null;
 const before = new THREE.Vector3(), after = new THREE.Vector3(), dir = new THREE.Vector3(), tmp = new THREE.Vector3();
 const WIND_DIR = new THREE.Vector3(1, 0, -1).normalize(); // from SW, blowing to NE
+const turb = new THREE.Vector3();
 
 function simulate(dt: number) {
   const s = input.sticks;
@@ -206,11 +226,15 @@ function simulate(dt: number) {
   if (fm.manual) fm.camTilt = THREE.MathUtils.clamp(fm.camTilt + tiltDir * 30 * dt, 0, 50);
   else gimbal = THREE.MathUtils.clamp(gimbal + tiltDir * 30 * dt, -90, 20);
 
-  windT += dt; const wspd = (4.2 + 1.6 * Math.sin(windT * 0.21) + 0.9 * Math.sin(windT * 0.83 + 1.3)) * (mission?.windScale ?? 1);
-  fm.wind.copy(WIND_DIR).multiplyScalar(wspd);
 
   const p0 = world.body.translation(); fm.pos.set(p0.x, p0.y, p0.z);
   const ground = world.groundBelow(fm.pos), onGround = fm.pos.y - ground < fm.drone.radius + 0.08;
+  // wind: slow gusts + turbulence; calmer down between buildings, stronger above the rooftops
+  windT += dt;
+  const gust = 4.2 + 1.6 * Math.sin(windT * 0.21) + 0.9 * Math.sin(windT * 0.83 + 1.3) + 0.6 * Math.sin(windT * 2.3 + 0.7);
+  const shelter = THREE.MathUtils.clamp((fm.pos.y - ground) / 18, 0.3, 1) * (fm.pos.y - fm.home.y > 26 ? 1.25 : 1);
+  const wk = gust * shelter * settings.v.wind * (mission?.windScale ?? 1);
+  fm.wind.copy(WIND_DIR).multiplyScalar(wk).add(turb.set(Math.sin(windT * 1.7) * 0.6, Math.sin(windT * 1.3 + 2) * 0.35, Math.sin(windT * 2.1 + 4) * 0.6).multiplyScalar(wk * 0.25));
   warnings = [];
   const wasCrashed = fm.phase === 'crashed';
 
@@ -252,19 +276,27 @@ function simulate(dt: number) {
   los.lostFor = los.visible ? 0 : los.lostFor + dt;
   if (view === 'los' && !los.visible && fm.armed) addWarn(los.lostFor > 3 ? 'VLOS RULE BROKEN' : 'CAN’T SEE DRONE');
 
+  const wasDone = !!mission?.done;
   if (mission && !mission.done) {
     if (!wasCrashed && fm.phase === 'crashed') mission.onCrash(env());
     else mission.update(dt, env());
+  }
+  if (!wasCrashed && fm.phase === 'crashed') { sound.crash(); input.buzz(1, 300); }
+  if (mission) {
+    for (const ev of mission.events.splice(0)) { if (ev === 'photo') sound.shutter(); else sound.chime(); input.buzz(0.5, 70); }
+    if (mission.done && !wasDone) { if (mission.result?.success) sound.success(); else sound.fail(); }
   }
 
   if (fm.battery < 0.2 && fm.armed) addWarn('LOW BATTERY');
   if (fm.battery < 0.15 && fm.armed && !fm.manual && !autoRthDone && fm.phase === 'flying') { fm.phase = 'rth'; autoRthDone = true; }
   if (fm.phase === 'rth') addWarn('RETURNING HOME');
   if (fm.phase === 'crashed') addWarn('CRASHED');
+  if (fm.armed && fm.cellV < 3.4) addWarn('LOW VOLTAGE');
+  sound.lowBattery(fm.armed ? (fm.battery < 0.1 || fm.cellV < 3.3 ? 'critical' : fm.battery < 0.2 || fm.cellV < 3.5 ? 'low' : null) : null);
 
   const key = startKey();
   banner = mission?.done ? null : fm.phase === 'landed' ? `Press ${key} to ${fm.manual ? 'arm' : 'take off'}` : fm.phase === 'crashed' ? `Crashed · press ${key} to reset at home` : fm.phase === 'landing' ? `Landing · press ${key} to cancel` : null;
-  sound.update(fm.throttleOut, fm.armed, Math.min(1, fm.drone.mass / 1));
+  sound.update(fm.throttleOut, fm.armed, Math.min(1, fm.drone.mass / 1), tmp.copy(fm.vel).sub(fm.wind).length(), fm.washing);
 }
 function addWarn(w: string) { if (!warnings.includes(w)) warnings.push(w); }
 
@@ -307,7 +339,7 @@ function hudState(): HudState {
     phase: fm.phase, roll: fm.manual ? e.z : fm.tiltR, pitch: fm.manual ? e.x * pxPerRad / 600 : 0, drone: fm.drone.name,
     input: isQuest ? 'Quest controllers' : input.source === 'gamepad' ? 'Gamepad' : 'Keyboard',
     warnings, banner, wind: fm.wind.length(), signal: THREE.MathUtils.clamp(1 - home / 1500, 0.2, 1), camTilt: fm.manual ? fm.camTilt : gimbal,
-    extras: extras(droneCam)
+    extras: extras(droneCam), voltage: fm.voltage, cellV: fm.cellV, fps: settings.v.fps ? fpsAvg : null
   };
 }
 
@@ -326,8 +358,11 @@ function updateRemote() {
 
 /* ---------- frame ---------- */
 let hudTick = 0;
+let fpsAvg = 60, frames = 0;
 function frame() {
-  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+  frames++;
+  const now = performance.now(), raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+  if (raw > 0) fpsAvg = fpsAvg * 0.95 + (1 / raw) * 0.05;
   const xr = renderer.xr.isPresenting;
   if (xr) {
     const session = renderer.xr.getSession()!; const pads: typeof input.xrGamepads = {};
@@ -413,4 +448,4 @@ function resize() {
 addEventListener('resize', resize);
 
 // test hook: lets automated checks read and drive the sim
-(window as unknown as { __sim: unknown }).__sim = { fm, world, los, get state() { return state; }, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
+(window as unknown as { __sim: unknown }).__sim = { fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };

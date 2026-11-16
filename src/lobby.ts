@@ -8,6 +8,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { settings, OPTIONS } from './settings';
 
 export interface LobbyConfig { droneIdx: number; missionIdx: number; view: 'fpv' | 'los'; waypoints: { x: number; z: number; alt: number; spd: number; act: number; action: string }[]; }
 export interface LobbyOptions { city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; }
@@ -952,6 +953,25 @@ function update() {
   const dp = dust.geometry.attributes.position; for (let i = 0; i < dp.count; i++) { let y = dp.getY(i) + dt * 0.02; if (y > H) y = 0; dp.setY(i, y); } dp.needsUpdate = true;
   if (renderer.xr.isPresenting) renderer.render(scene, camera); else composer.render();
 }
+
+/* =========================================================
+   BEHIND-LEFT: settings (saved on this device)
+   ========================================================= */
+const settingsPanel = new UIPanel(1.2, 1.3, 1000, (g, W, Hh, p) => {
+  p.bg('SETTINGS', 'SAVED ON THIS DEVICE');
+  const ROW = 122, top = 104;
+  OPTIONS.forEach((o, i) => {
+    const y = top + i * ROW;
+    g.fillStyle = i % 2 ? 'rgba(20,38,52,.25)' : 'rgba(20,38,52,.5)'; rr(g, 30, y, W - 60, ROW - 10, 12); g.fill();
+    txt(g, o.label, 56, y + 46, `600 32px ${FONT_D}`, '#E8F0F6');
+    txt(g, o.help, 56, y + 86, `400 21px ${FONT_D}`, '#7F95A8');
+    p.button('s-' + o.key, W - 420, y + 18, 72, 72, '‹', () => { settings.step(o, -1); settingsPanel.redraw(); }, { size: 40 });
+    txt(g, settings.name(o), W - 228, y + 64, `700 28px ${FONT_M}`, '#FFB020', 'center');
+    p.button('s+' + o.key, W - 108, y + 18, 72, 72, '›', () => { settings.step(o, 1); settingsPanel.redraw(); }, { size: 40 });
+  });
+});
+place(settingsPanel.group, -150, 2.5, 1.5); settingsPanel.group.rotateX(-0.06); pod.add(settingsPanel.group);
+settingsPanel.redraw();
 
 function getConfig() {
   return { droneIdx, missionIdx, view, waypoints: waypoints.map(w => ({ x: w.x * MPU, z: w.z * MPU, alt: w.alt, spd: w.spd, act: w.act, action: ACTIONS[w.act] })) };

@@ -11,6 +11,7 @@ export interface HudState {
   phase: string; roll: number; pitch: number; drone: string; input: string;
   warnings: string[]; banner: string | null; wind: number; signal: number; camTilt: number;
   extras?: Extras;
+  voltage?: number; cellV?: number; fps?: number | null;
 }
 
 const MONO = '"JetBrains Mono", ui-monospace, monospace', SANS = '"Space Grotesk", system-ui, sans-serif';
@@ -81,6 +82,8 @@ export function drawHud(g: CanvasRenderingContext2D, W: number, H: number, s: Hu
   g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeRect(40, h - 96, 160, 26); g.fillStyle = '#fff'; g.fillRect(200, h - 89, 6, 12);
   g.fillStyle = bc; g.fillRect(44, h - 92, 152 * s.battery, 18);
   T(`${Math.round(s.battery * 100)}%`, 220, h - 74, 30, bc);
+  if (s.voltage !== undefined) T(`${s.voltage.toFixed(1)} V · ${(s.cellV ?? 0).toFixed(2)} V/cell`, 290, h - 74, 20, (s.cellV ?? 4) < 3.5 ? '#FFB020' : 'rgba(255,255,255,.85)', 'left', 600);
+  if (s.fps) T(`${Math.round(s.fps)} FPS`, w - 40, 124, 18, s.fps < 60 ? '#FFB020' : '#5BE38C', 'right', 600);
   T(`FLIGHT ${fmt(s.flightTime)}`, 40, h - 36, 22, '#fff', 'left', 600);
   T(`CAM ${s.camTilt >= 0 ? '+' : ''}${Math.round(s.camTilt)}°`, 250, h - 36, 22, 'rgba(255,255,255,.8)', 'left', 600);
 

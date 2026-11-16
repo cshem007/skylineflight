@@ -1,4 +1,6 @@
-// Unified Mode 2 sticks from keyboard, PC gamepad, or Quest controllers.
+import { settings } from './settings';
+
+// Unified sticks (Mode 2 by default, Mode 1 from settings) from keyboard, PC gamepad, or Quest controllers.
 // Sticks are -1..1. throttle: up = +1. pitch: forward = +1. roll: right = +1. yaw: right = +1.
 
 export interface Sticks { throttle: number; yaw: number; pitch: number; roll: number; }
@@ -6,7 +8,7 @@ export interface Buttons { arm: boolean; rth: boolean; mode: boolean; view: bool
 export type InputSource = 'keyboard' | 'gamepad' | 'quest';
 
 const DEAD = 0.06;
-const shape = (v: number, expo = 0.3) => {
+const shape = (v: number, expo = settings.v.expo) => {
   const a = Math.abs(v) < DEAD ? 0 : (Math.abs(v) - DEAD) / (1 - DEAD);
   return Math.sign(v) * (a * (1 - expo) + a * a * a * expo);
 };
@@ -20,6 +22,17 @@ export class Input {
   private pressed: Partial<Buttons> = {};
   private held: Partial<Buttons> = {};
   xrGamepads: { left?: Gamepad; right?: Gamepad } = {};
+  private pad: Gamepad | null = null;
+
+  /** Controller vibration: Quest controllers or a PC gamepad. strength 0..1 */
+  buzz(strength: number, ms: number) {
+    for (const g of [this.xrGamepads.left, this.xrGamepads.right]) {
+      const h = (g as unknown as { hapticActuators?: { pulse(v: number, d: number): void }[] } | undefined)?.hapticActuators?.[0];
+      try { h?.pulse(strength, ms); } catch { /* not supported */ }
+    }
+    const v = (this.pad as unknown as { vibrationActuator?: { playEffect(t: string, o: object): Promise<unknown> } } | null)?.vibrationActuator;
+    if (v && this.source === 'gamepad') v.playEffect('dual-rumble', { duration: ms, strongMagnitude: strength, weakMagnitude: strength * 0.6 }).catch(() => null);
+  }
 
   constructor() {
     addEventListener('keydown', e => { this.keys.add(e.code); if (!e.repeat) this.taps.add(e.code); if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); });
@@ -42,7 +55,9 @@ export class Input {
     if (L || R) {
       this.source = 'quest';
       const la = L?.axes ?? [], ra = R?.axes ?? [];
-      s = { yaw: shape(la[2] ?? 0), throttle: shape(-(la[3] ?? 0), 0.15), roll: shape(ra[2] ?? 0), pitch: shape(-(ra[3] ?? 0)) };
+      s = settings.v.stickMode === 1
+        ? { yaw: shape(la[2] ?? 0), pitch: shape(-(la[3] ?? 0)), roll: shape(ra[2] ?? 0), throttle: shape(-(ra[3] ?? 0), 0.15) }
+        : { yaw: shape(la[2] ?? 0), throttle: shape(-(la[3] ?? 0), 0.15), roll: shape(ra[2] ?? 0), pitch: shape(-(ra[3] ?? 0)) };
       b.arm = !!R?.buttons[4]?.pressed;          // A
       b.rth = !!R?.buttons[5]?.pressed;          // B
       b.mode = !!L?.buttons[4]?.pressed;         // X
@@ -53,7 +68,10 @@ export class Input {
     } else if (pad) {
       this.source = 'gamepad';
       const a = pad.axes;
-      s = { yaw: shape(a[0]), throttle: shape(-a[1], 0.15), roll: shape(a[2]), pitch: shape(-a[3]) };
+      s = settings.v.stickMode === 1
+        ? { yaw: shape(a[0]), pitch: shape(-a[1]), roll: shape(a[2]), throttle: shape(-a[3], 0.15) }
+        : { yaw: shape(a[0]), throttle: shape(-a[1], 0.15), roll: shape(a[2]), pitch: shape(-a[3]) };
+      this.pad = pad;
       const btn = (i: number) => !!pad.buttons[i]?.pressed;
       b = { arm: btn(0), rth: btn(1), mode: btn(2), view: btn(3), recenter: btn(8), tiltUp: btn(12) || btn(5), tiltDown: btn(13) || btn(4) };
     } else {
@@ -66,7 +84,10 @@ export class Input {
       s = { throttle: sm(this.sticks.throttle, s.throttle), yaw: sm(this.sticks.yaw, s.yaw), pitch: sm(this.sticks.pitch, s.pitch), roll: sm(this.sticks.roll, s.roll) };
     }
     this.sticks = s;
-    for (const key of Object.keys(b) as (keyof Buttons)[]) { this.pressed[key] = b[key] && !this.prev[key]; this.held[key] = b[key]; }
+    // a fresh key-down always counts as a press, even if no frame saw the previous release
+    const t = (c: string) => this.taps.has(c);
+    const tapped: Partial<Buttons> = this.source === 'keyboard' ? { arm: t('Enter') || t('Space'), rth: t('KeyH'), mode: t('KeyM'), view: t('KeyV'), recenter: t('KeyC') } : {};
+    for (const key of Object.keys(b) as (keyof Buttons)[]) { this.pressed[key] = (b[key] && !this.prev[key]) || !!tapped[key]; this.held[key] = b[key]; }
     this.prev = b;
     this.taps.clear();
   }
