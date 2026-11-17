@@ -3,7 +3,7 @@ import { World, ALT_LIMIT } from './world';
 import { DRONES } from './drones';
 import { FlightModel } from './flight';
 import { Input } from './input';
-import { drawHud, drawLosHud, type HudState, type Extras } from './hud';
+import { drawHud, drawRemoteHud, drawLosHud, type HudState, type Extras } from './hud';
 import { Goggles } from './goggles';
 import { MotorSound } from './audio';
 import { buildDrone, buildRemote, spinProps, type DroneModel } from './models';
@@ -416,7 +416,7 @@ function frame() {
     } else {
       rig.position.copy(pilot); rig.updateMatrixWorld(true); updateRemote();
       renderFeed(rcRt);
-      if (hudOn) { drawHud(rcCtx, 960, 540, hudState()); rcTex.needsUpdate = true; }
+      if (hudOn) { drawRemoteHud(rcCtx, 960, 540, hudState()); rcTex.needsUpdate = true; }
       renderer.render(world.scene, xrCam);
     }
   } else {

@@ -193,3 +193,83 @@ export function drawLosHud(g: CanvasRenderingContext2D, W: number, H: number, s:
   if (s.extras) drawExtras(g, w, h, s.extras, 40, 40 + s.warnings.length * 44 + 8);
   g.restore();
 }
+
+/** Compact HUD for the small screen on the virtual remote (VR line of sight).
+ *  Drawn on a 960x540 canvas that is seen from ~40 cm away on a screen about 20 cm wide, so it has few items,
+ *  large numbers, and a dark outline on every glyph. Text is never smaller than 22 canvas px. */
+export function drawRemoteHud(g: CanvasRenderingContext2D, W: number, H: number, s: HudState) {
+  const k = H / 540; g.clearRect(0, 0, W, H); g.save(); g.scale(k, k);
+  const w = W / k, h = 540, cx = w / 2;
+  const T = (t: string, x: number, y: number, size: number, color = '#fff', align: CanvasTextAlign = 'left', weight = 700, font = MONO) => {
+    g.font = `${weight} ${size}px ${font}`; g.textAlign = align; g.lineJoin = 'round';
+    g.lineWidth = Math.max(5, size / 6); g.strokeStyle = 'rgba(0,0,0,.9)'; g.strokeText(t, x, y);
+    g.fillStyle = color; g.fillText(t, x, y);
+  };
+  const e = s.extras;
+  // results card: shown alone over the dimmed video
+  if (e?.result) {
+    const r = e.result, rows = r.rows.slice(0, 5), cw = 760, ch = 170 + rows.length * 48 + 56, x = (w - cw) / 2, y = Math.max(10, (h - ch) / 2);
+    g.fillStyle = 'rgba(2,4,6,.6)'; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(8,16,24,.97)'; g.beginPath(); g.roundRect(x, y, cw, ch, 18); g.fill();
+    g.strokeStyle = r.success ? 'rgba(91,227,140,.8)' : 'rgba(255,90,78,.8)'; g.lineWidth = 4; g.stroke();
+    T(r.success ? 'MISSION COMPLETE' : 'MISSION OVER', x + 32, y + 46, 26, r.success ? '#5BE38C' : '#FF7A70');
+    if (r.success && r.newBest) T('NEW BEST', x + cw - 32, y + 46, 26, '#FFB020', 'right');
+    T(r.title, x + 32, y + 110, 48, '#fff', 'left', 700, SANS);
+    rows.forEach(([a, b], i) => { const yy = y + 168 + i * 48; T(a, x + 32, yy, 30, '#9FB0BF', 'left', 500, SANS); T(b, x + cw - 32, yy, 34, '#fff', 'right'); });
+    T(`Press ${e.resultKey ?? 'A'} to return`, cx, y + ch - 22, 28, '#FFB020', 'center', 600);
+    g.restore(); return;
+  }
+  const pill = (text: string, y: number, bg: string, fg = '#05080C') => {
+    g.font = `700 30px ${MONO}`; const tw = g.measureText(text).width + 44;
+    g.fillStyle = bg; g.beginPath(); g.roundRect(cx - tw / 2, y, tw, 46, 12); g.fill(); T(text, cx, y + 34, 30, fg, 'center');
+    g.lineWidth = 0;
+  };
+
+  // top: flight mode (left) and real time + date (right)
+  g.fillStyle = s.manual ? '#FF5A4E' : '#FFB020'; g.beginPath(); g.roundRect(16, 14, 56, 46, 8); g.fill();
+  g.font = `700 32px ${MONO}`; g.fillStyle = '#05080C'; g.textAlign = 'center'; g.fillText(s.mode, 44, 48);
+  T(s.modeName.toUpperCase(), 84, 48, 26, '#fff', 'left', 600);
+  const now = new Date();
+  T(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), w - 16, 42, 36, '#fff', 'right');
+  T(now.toLocaleDateString([], { weekday: 'short', day: '2-digit', month: 'short' }), w - 16, 70, 24, 'rgba(255,255,255,.9)', 'right', 500);
+
+  // mission objective
+  if (e?.objective && !e.result) {
+    const o = e.objective; g.font = `600 26px ${SANS}`; const bw = Math.min(560, Math.max(300, g.measureText(o.detail).width + 36));
+    g.fillStyle = 'rgba(4,8,12,.7)'; g.beginPath(); g.roundRect(16, 78, bw, o.progress !== undefined ? 96 : 84, 10); g.fill();
+    g.fillStyle = '#FFB020'; g.fillRect(16, 88, 4, 62);
+    T(o.title, 32, 110, 26, '#FFB020'); T(o.detail, 32, 142, 26, '#fff', 'left', 600, SANS);
+    if (o.progress !== undefined) { g.fillStyle = 'rgba(255,255,255,.2)'; g.fillRect(32, 154, bw - 32, 8); g.fillStyle = '#3FD0FF'; g.fillRect(32, 154, (bw - 32) * Math.min(1, Math.max(0, o.progress)), 8); }
+  }
+
+  // centre: reticle, and the next target
+  g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 3; g.beginPath(); g.arc(cx, h / 2 - 30, 14, 0, Math.PI * 2); g.stroke();
+  if (e?.target && !e.result) {
+    const t = e.target, x = t.x * w, y = t.y * h; g.strokeStyle = '#FFB020'; g.fillStyle = '#FFB020'; g.lineWidth = 4;
+    if (t.on) { g.beginPath(); g.moveTo(x, y - 24); g.lineTo(x + 24, y); g.lineTo(x, y + 24); g.lineTo(x - 24, y); g.closePath(); g.stroke(); T(`${Math.round(t.dist)} m`, x, y + 56, 28, '#FFB020', 'center'); }
+    else { const ex = Math.min(w - 50, Math.max(50, x)), ey = Math.min(380, Math.max(190, y)), a = Math.atan2(y - h / 2, x - w / 2); g.save(); g.translate(ex, ey); g.rotate(a); g.beginPath(); g.moveTo(26, 0); g.lineTo(-14, -18); g.lineTo(-14, 18); g.fill(); g.restore(); }
+  }
+
+  // alerts and prompts above the metrics bar
+  const alerts = [...s.warnings].sort((a, b) => Number(/CRASH|LOW BATTERY|VOLTAGE/.test(b)) - Number(/CRASH|LOW BATTERY|VOLTAGE/.test(a))).slice(0, 2);
+  let ay = 342 - (s.banner ? 54 : 0) - (alerts.length - 1) * 54;
+  if (!e?.result) {
+    for (const wn of alerts) { pill(wn, ay, /CRASH|LOW BATTERY|VOLTAGE/.test(wn) ? 'rgba(255,90,78,.95)' : 'rgba(255,176,32,.95)'); ay += 54; }
+    if (s.banner) pill(s.banner, 342, 'rgba(10,22,32,.92)', '#fff');
+  }
+
+  // bottom bar: the four numbers you need while flying
+  g.fillStyle = 'rgba(2,6,10,.62)'; g.fillRect(0, 408, w, 132);
+  const bc = s.battery > 0.3 ? '#5BE38C' : s.battery > 0.15 ? '#FFB020' : '#FF5A4E';
+  const cols: [string, string, string][] = [
+    ['ALT  m', s.alt.toFixed(0), s.warnings.includes('ALTITUDE LIMIT') ? '#FFB020' : '#fff'],
+    ['SPEED  m/s', s.hs.toFixed(1), '#fff'],
+    ['HOME  m', String(Math.round(s.home)), '#fff'],
+    ['BATTERY  %', String(Math.round(s.battery * 100)), bc]
+  ];
+  cols.forEach(([label, value, color], i) => { const x = w * (0.125 + 0.25 * i); T(label, x, 442, 24, '#B8C8D6', 'center', 600); T(value, x, 508, 62, color, 'center'); });
+
+  if (e?.flash) { g.fillStyle = `rgba(255,255,255,${0.7 * e.flash})`; g.fillRect(0, 0, w, h); }
+
+  g.restore();
+}
