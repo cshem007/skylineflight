@@ -467,4 +467,4 @@ function resize() {
 addEventListener('resize', resize);
 
 // test hook: lets automated checks read and drive the sim
-(window as unknown as { __sim: unknown }).__sim = { fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, perf, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
+(window as unknown as { __sim: unknown }).__sim = { THREE, pilot, fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, perf, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
