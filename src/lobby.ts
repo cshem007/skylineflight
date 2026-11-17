@@ -220,7 +220,7 @@ const key = new THREE.SpotLight(0xDDF3FF, 26, 6, 0.75, 0.55, 1.6); key.position.
 key.castShadow = !opts.lite; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0004; key.shadow.radius = 4; pod.add(key, key.target);
 const spotDrone = new THREE.SpotLight(0xFFFFFF, 14, 4, 0.35, 0.6, 1.5); spotDrone.castShadow = !opts.lite; spotDrone.shadow.mapSize.set(512, 512); pod.add(spotDrone, spotDrone.target);
 const fillC = new THREE.PointLight(CYAN, 1.6, 4, 2); fillC.position.set(-1.2, 0.5, 0.6); pod.add(fillC);
-const fillW = new THREE.PointLight(0xFFB070, 1.4, 3, 2); fillW.position.set(1.0, 0.5, -0.4); pod.add(fillW);
+const fillW = new THREE.PointLight(0xFFB070, 1.1, 4, 2); fillW.position.set(0.5, 0.7, 0.7);   // warm fill from behind the pilot (was 40 cm from the console: a hot flare) pod.add(fillW);
 
 // pilot seat (look down)
 {
@@ -474,13 +474,13 @@ const clockPanel = new UIPanel(2.3, 0.34, 900, (g, W, Hh, p) => {
   txt(g, 'WIND 4.2 m/s SW', W - 60, 120, `700 34px ${FONT_M}`, '#FFB020', 'right', 1);
   txt(g, (s.day > 0.5 ? 'DAYLIGHT' : s.dusk > 0.35 ? 'GOLDEN HOUR' : 'NIGHT') + ' · LOCAL TIME', W - 60, 168, `500 22px ${FONT_M}`, '#5E7385', 'right', 3);
 }, { back: true });
-place(clockPanel.group, 0, 2.78, 2.28); clockPanel.group.rotateX(0.16); pod.add(clockPanel.group);
+place(clockPanel.group, 0, 2.3, 2.3); clockPanel.group.rotateX(0.16); pod.add(clockPanel.group);
 
 /* =========================================================
    FRONT: holographic map table with the real city
    ========================================================= */
 const MPU = 20;                 // metres per model unit (estimated from storey heights; confirm later)
-const TABLE_D = 1.18, TABLE_Y = 0.8, HALF = 0.5;   // clip box half-size on the table, metres
+const TABLE_D = 1.25, TABLE_Y = 0.8, HALF = 0.5;   // clip box half-size on the table, metres
 const table = new THREE.Group(); place(table, 0, TABLE_D); pod.add(table);
 {
   const pts = [[0, 0], [0.34, 0], [0.34, 0.03], [0.16, 0.08], [0.12, 0.6], [0.5, 0.72], [0.74, 0.74], [0.76, 0.78], [0.74, 0.8], [0, 0.8]].map(([x, y]) => new THREE.Vector2(x, y));
@@ -689,14 +689,14 @@ const planner = new UIPanel(1.06, 0.86, 1500, (g, W, Hh, p) => {
   txt(g, `ZOOM ${zoom.toFixed(1)}×`, 48, TY - 18, `500 20px ${FONT_M}`, '#5E7385', 'left', 2);
   txt(g, `SCALE 1 unit ≈ ${MPU} m (estimate)`, W - 48, TY - 18, `500 20px ${FONT_M}`, '#5E7385', 'right', 1);
 });
-place(planner.group, -50, 1.42, 1.06); planner.group.rotateX(-0.36); pod.add(planner.group);
-{ const stand = mesh(rbox(0.08, 0.95, 0.08, 0.02), M.frame); place(stand, -50, 1.48, 0.47); pod.add(stand); const foot = mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.03, 40), M.frame, 0, 0.015, 0); place(foot, -50, 1.48); foot.position.y = 0.015; pod.add(foot); }
+place(planner.group, -58, 1.55, 1.06); planner.group.rotateX(-0.36); pod.add(planner.group);
+{ const stand = mesh(rbox(0.08, 0.95, 0.08, 0.02), M.frame); place(stand, -58, 1.64, 0.47); pod.add(stand); const foot = mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.03, 40), M.frame, 0, 0.015, 0); place(foot, -58, 1.64); foot.position.y = 0.015; pod.add(foot); }
 function setZoom(z) { zoom = THREE.MathUtils.clamp(z, 0.8, 6); applyMapTransform(); refreshRoute(); }
 
 /* =========================================================
    RIGHT NEAR: launch console (guarded launch switch, view selector)
    ========================================================= */
-const consoleG = new THREE.Group(); place(consoleG, 44, 1.25); pod.add(consoleG);
+const consoleG = new THREE.Group(); place(consoleG, 50, 1.4); pod.add(consoleG);
 {
   const s = new THREE.Shape(); s.moveTo(-0.22, 0); s.lineTo(0.2, 0); s.lineTo(0.2, 0.7); s.lineTo(-0.22, 0.86); s.lineTo(-0.22, 0);
   const body = new THREE.ExtrudeGeometry(s, { depth: 0.7, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 3 }); body.translate(0, 0, -0.35); body.rotateY(-Math.PI / 2);
@@ -710,17 +710,17 @@ const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
   txt(g, `${MISSIONS[missionIdx][0]} · ${view === 'fpv' ? 'FPV goggles' : 'Line of sight'}`, 50, 252, `500 34px ${FONT_D}`, '#9FB0BF');
   txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 50, 304, `500 30px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
 }, { back: false });
-consoleScreen.group.position.set(-0.03, 0.8, 0.02); consoleScreen.group.rotation.x = -1.2; consoleG.add(consoleScreen.group);
+consoleScreen.group.position.set(-0.03, 0.838, -0.068); consoleScreen.group.rotation.x = -1.2; consoleScreen.group.scale.setScalar(0.9); consoleG.add(consoleScreen.group);   // lies on the sloped top, behind the controls
 // view selector: two lit buttons
 const viewBtns = {};
 [['fpv', -0.13, 'FPV'], ['los', -0.03, 'LOS']].forEach(([k, x, l]) => {
-  const b = mesh(rbox(0.08, 0.025, 0.055, 0.008), glow(CYAN, 0.5), x, 0.74, 0.12); b.userData.click = () => setView(k); consoleG.add(b); viewBtns[k] = b;
+  const b = mesh(rbox(0.08, 0.025, 0.055, 0.008), glow(CYAN, 0.5), x, 0.745, 0.15); b.rotation.x = 0.364; b.userData.click = () => setView(k); consoleG.add(b); viewBtns[k] = b;
   const lc = cnv(128, 64), lg = lc.getContext('2d'); txt(lg, l, 64, 44, `700 36px ${FONT_M}`, '#04121A', 'center');
-  const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 0.03), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(lc), transparent: true, toneMapped: false })); lab.rotation.x = -Math.PI / 2; lab.position.set(x, 0.7535, 0.12); consoleG.add(lab);
+  const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 0.03), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(lc), transparent: true, toneMapped: false })); lab.rotation.x = -1.2; lab.position.set(x, 0.7625, 0.151); consoleG.add(lab);
 });
 function setView(v) { view = v; for (const k in viewBtns) viewBtns[k].material.color.set(new THREE.Color(k === v ? (k === 'fpv' ? CYAN : GREEN) : 0x1A2A35).multiplyScalar(k === v ? 1.2 : 1)); consoleScreen.redraw(); }
 // guarded launch switch
-const launch = new THREE.Group(); launch.position.set(0.12, 0.74, 0.11); consoleG.add(launch);
+const launch = new THREE.Group(); launch.position.set(0.14, 0.738, 0.15); launch.rotation.x = 0.364; consoleG.add(launch);
 launch.add(mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.02, 40), M.dark));
 { for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; launch.add(mesh(new THREE.BoxGeometry(0.012, 0.004, 0.006), glow(i % 2 ? 0x111111 : AMBER, i % 2 ? 1 : 0.8), Math.cos(a) * 0.05, 0.011, Math.sin(a) * 0.05, { cast: false })); } }
 const btnPts = [[0, 0], [0.036, 0], [0.04, 0.008], [0.038, 0.018], [0.028, 0.026], [0, 0.028]].map(([x, y]) => new THREE.Vector2(x, y));
@@ -990,6 +990,9 @@ const settingsPanel = new UIPanel(1.2, 1.3, 1000, (g, W, Hh, p) => {
 });
 place(settingsPanel.group, -150, 2.5, 1.5); settingsPanel.group.rotateX(-0.06); pod.add(settingsPanel.group);
 settingsPanel.redraw();
+
+for (const [n, o] of [['planner', planner], ['spec', specPanel], ['mission', missionPanel], ['clock', clockPanel], ['screen', consoleScreen], ['settings', settingsPanel]]) o.group.name = n;
+table.name = 'table'; consoleG.name = 'console'; pedestal.name = 'pedestal'; launch.name = 'launch'; cover.name = 'cover';
 
 function getConfig() {
   return { droneIdx, missionIdx, view, waypoints: waypoints.map(w => ({ x: w.x * MPU, z: w.z * MPU, alt: w.alt, spd: w.spd, act: w.act, action: ACTIONS[w.act] })) };
