@@ -119,20 +119,37 @@ function onLaunch(c: LaunchConfig) {
   const m = createMission(c.missionIdx, c.waypoints);
   briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, controls: controlRows().slice(0, 7), startKey: startKey() });
   mission = m; launchQueued = false;
+  prepareFlight();
 }
-function startFlight() {
-  const d = DRONES[cfg.droneIdx];
-  view = mission?.forceView ?? cfg.view;
+/** Runs during the 3 s briefing: builds the drone model, compiles shaders, builds the mission course. */
+let prepared = false;
+function prepareFlight() {
+  prepared = false;
+  const d = DRONES[cfg.droneIdx], t0 = performance.now();
   fm.setDrone(d); world.setDroneRadius(d.radius); resetToHome(); gimbal = 0; fm.battery = 1;
   droneCam.fov = d.vfov; droneCam.updateProjectionMatrix();
   if (droneMesh) world.scene.remove(droneMesh);
-  droneMesh = buildDrone(d.id); world.scene.add(droneMesh);
+  droneMesh = buildDrone(d.id); droneMesh.visible = false; world.scene.add(droneMesh);
   if (!blob.parent) world.scene.add(blob);
   blob.scale.setScalar(d.radius * 4.5);
   placePilot();
-  if (!mission) mission = createMission(0, []);
-  world.scene.add(mission.group); mission.setup(env());
-  autoRthDone = mission.id === 'last10';
+  try { world.scene.add(mission!.group); mission!.setup(env()); }
+  catch (e) { console.error('mission setup failed, falling back to free ride', e); mission!.dispose(); mission = createMission(0, []); world.scene.add(mission.group); mission.setup(env()); }
+  perf.setupMs = Math.round(performance.now() - t0);
+  const done = () => { prepared = true; };
+  droneMesh.visible = true;                                       // visible objects only get compiled
+  const comp = renderer.compileAsync(world.scene, droneCam);      // compile shaders now, not at the first flight frame
+  droneMesh.visible = false; comp.then(done, done);
+  renderer.compileAsync(goggles.scene, xrCam).catch(() => null);
+}
+const perf = { setupMs: 0 };
+function startFlight() {
+  if (!prepared) return;                       // still compiling: the briefing keeps the queued press and launches when done
+  view = mission?.forceView ?? cfg.view;
+  const d = DRONES[cfg.droneIdx];
+  if (fm.drone.id !== d.id) { fm.setDrone(d); }
+  if (droneMesh) droneMesh.visible = true;
+  autoRthDone = mission!.id === 'last10';
   state = 'flight'; needRecenter = true; sound.start();
 }
 function endFlight() {
@@ -162,6 +179,7 @@ $('fly').onclick = e => { (e.currentTarget as HTMLElement).blur(); if (state !==
 async function enterVR() {
   try {
     const session = await navigator.xr!.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    const qn = qualityPreset(isQuest, isQuest3S).name; renderer.xr.setFramebufferScaleFactor(qn === 'low' ? 0.8 : qn === 'medium' ? 0.9 : 1);
     await renderer.xr.setSession(session); sound.start(); applyQuality();
     if (state === 'boot') goLobby(); else { $('chip').hidden = true; $('vr2').hidden = true; }
     session.addEventListener('end', () => { input.xrGamepads = {}; remote.visible = false; if (state !== 'boot') goLobby(); });
@@ -193,7 +211,7 @@ rig.add(remote);
   const bar = (p: number, m: string) => { $<HTMLElement>('bar').style.width = `${Math.round(p * 100)}%`; $('loadmsg').textContent = m; };
   await world.load((p, m) => bar(p * 0.85, m));
   bar(0.9, 'Building the cockpit');
-  lobby = await createLobby(renderer, { city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch });
+  lobby = await createLobby(renderer, { city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch, groundAt: (x, z) => world.groundAt(x, z), lite: isQuest });
   briefing = new Briefing(renderer);
   applyQuality();
   bar(1, 'Ready');
@@ -375,7 +393,7 @@ function frame() {
   if (state === 'briefing') {
     briefing!.update(dt, innerWidth / innerHeight);
     if (input.justPressed('arm')) launchQueued = true;              // pressed early: launch as soon as checks finish
-    if (briefing!.ready && launchQueued) { launchQueued = false; startFlight(); }
+    if (briefing!.ready && prepared && launchQueued) { launchQueued = false; startFlight(); }
     renderer.render(briefing!.scene, briefing!.camera);
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
     return;
@@ -432,8 +450,9 @@ function frame() {
 }
 function renderFeed(rt: THREE.WebGLRenderTarget) {
   if (droneMesh) droneMesh.visible = false;
+  const prev = renderer.getRenderTarget();            // in VR this is the headset's framebuffer: put it back afterwards
   renderer.xr.enabled = false;
-  renderer.setRenderTarget(rt); renderer.render(world.scene, droneCam); renderer.setRenderTarget(null);
+  renderer.setRenderTarget(rt); renderer.render(world.scene, droneCam); renderer.setRenderTarget(prev);
   renderer.xr.enabled = true;
   if (droneMesh) droneMesh.visible = view === 'los';
 }
@@ -448,4 +467,4 @@ function resize() {
 addEventListener('resize', resize);
 
 // test hook: lets automated checks read and drive the sim
-(window as unknown as { __sim: unknown }).__sim = { fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
+(window as unknown as { __sim: unknown }).__sim = { fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, perf, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };

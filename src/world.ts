@@ -41,6 +41,7 @@ export class World {
 
     onProgress(0.72, 'Building collision mesh');
     const v = new THREE.Vector3();
+    const chunks: { verts: Float32Array; ind: Uint32Array }[] = [];
     city.traverse(o => {
       const m = o as THREE.Mesh; if (!m.isMesh) return;
       const mats = Array.isArray(m.material) ? m.material : [m.material];
@@ -50,8 +51,13 @@ export class World {
       const verts = new Float32Array(pos.count * 3);
       for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); verts.set([v.x, v.y, v.z], i * 3); this.bounds.expandByPoint(v); }
       const ind = idx ? new Uint32Array(idx.array) : Uint32Array.from({ length: pos.count }, (_, i) => i);
-      if (ind.length >= 3) this.physics.createCollider(RAPIER.ColliderDesc.trimesh(verts, ind).setFriction(0.6).setRestitution(0.15));
+      if (ind.length >= 3) chunks.push({ verts, ind });
     });
+    // one collision mesh for the whole city: one spatial index, much faster to build and to query than 100 of them
+    let nv = 0, ni = 0; for (const c of chunks) { nv += c.verts.length; ni += c.ind.length; }
+    const allV = new Float32Array(nv), allI = new Uint32Array(ni); let ov = 0, oi = 0;
+    for (const c of chunks) { allV.set(c.verts, ov); for (let i = 0; i < c.ind.length; i++) allI[oi + i] = c.ind[i] + ov / 3; ov += c.verts.length; oi += c.ind.length; }
+    this.physics.createCollider(RAPIER.ColliderDesc.trimesh(allV, allI).setFriction(0.6).setRestitution(0.15));
 
     onProgress(0.85, 'Mapping no-fly zones');
     this.physics.step(); // build the broad phase before ray queries

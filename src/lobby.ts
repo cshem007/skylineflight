@@ -11,7 +11,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { settings, OPTIONS } from './settings';
 
 export interface LobbyConfig { droneIdx: number; missionIdx: number; view: 'fpv' | 'los'; waypoints: { x: number; z: number; alt: number; spd: number; act: number; action: string }[]; }
-export interface LobbyOptions { city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; }
+export interface LobbyOptions { city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; groundAt: (xMetres: number, zMetres: number) => number; lite: boolean; }
 export interface LobbyApi {
   active: boolean; scene: THREE.Scene; camera: THREE.PerspectiveCamera; rig: THREE.Group;
   update(): void; resize(): void; enter(): void; leave(): void; getConfig(): LobbyConfig; setDeviceLabel(s: string): void;
@@ -217,8 +217,8 @@ const ceilRing = mesh(new THREE.TorusGeometry(1.25, 0.018, 8, 128), glow(0xBFE9F
 const ceilDish = mesh(new THREE.CylinderGeometry(1.4, 1.45, 0.08, 64, 1, true), M.frame, 0, H - 0.04, 0); pod.add(ceilDish);
 // lights
 const key = new THREE.SpotLight(0xDDF3FF, 26, 6, 0.75, 0.55, 1.6); key.position.set(0, H - 0.1, -0.4); key.target.position.set(0, 0.8, -1.2);
-key.castShadow = true; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0004; key.shadow.radius = 4; pod.add(key, key.target);
-const spotDrone = new THREE.SpotLight(0xFFFFFF, 14, 4, 0.35, 0.6, 1.5); spotDrone.castShadow = true; spotDrone.shadow.mapSize.set(512, 512); pod.add(spotDrone, spotDrone.target);
+key.castShadow = !opts.lite; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0004; key.shadow.radius = 4; pod.add(key, key.target);
+const spotDrone = new THREE.SpotLight(0xFFFFFF, 14, 4, 0.35, 0.6, 1.5); spotDrone.castShadow = !opts.lite; spotDrone.shadow.mapSize.set(512, 512); pod.add(spotDrone, spotDrone.target);
 const fillC = new THREE.PointLight(CYAN, 1.6, 4, 2); fillC.position.set(-1.2, 0.5, 0.6); pod.add(fillC);
 const fillW = new THREE.PointLight(0xFFB070, 1.4, 3, 2); fillW.position.set(1.0, 0.5, -0.4); pod.add(fillW);
 
@@ -524,17 +524,12 @@ applyMapTransform();
 const ACTIONS = ['Fly through', 'Hover 3 s', 'Photo', 'Start video', 'Gate'];
 const ACTION_SECS = [0, 3, 2, 1, 0];
 const HOME = { x: opts.home.x / MPU, z: opts.home.z / MPU };
+let dirtyUI = false, dirtyAt = 0;
 let waypoints = [], selected = -1, undoStack = [], previewing = false, previewT = 0;
 const snapshot = () => { undoStack.push(JSON.stringify({ waypoints, selected })); if (undoStack.length > 80) undoStack.shift(); };
 function undo() { const s = undoStack.pop(); if (!s) return; const o = JSON.parse(s); waypoints = o.waypoints; selected = o.selected; refreshRoute(); }
-const groundRay = new THREE.Raycaster();
-function groundAt(x, z) { // metres of the highest surface under (x,z) in city units
-  if (!cityMeshes.length) return 0;
-  const o = cityLocal.localToWorld(new THREE.Vector3(x, 10, z)), t = cityLocal.localToWorld(new THREE.Vector3(x, -1, z));
-  groundRay.set(o, t.sub(o).normalize()); groundRay.far = 50;
-  const h = groundRay.intersectObjects(cityMeshes, false)[0];
-  return h ? Math.max(0, cityLocal.worldToLocal(h.point.clone()).y * MPU) : 0;
-}
+// ground height comes from the flight world's precomputed height grid: instant, no triangle raycasts
+function groundAt(x, z) { const g = opts.groundAt(x * MPU, z * MPU); return Number.isNaN(g) ? 0 : Math.max(0, g); }
 function newWp(x, z) { const gnd = groundAt(x, z); return { x, z, alt: Math.min(ALT_MAX, Math.max(15, Math.ceil((gnd + 10) / 5) * 5)), spd: DRONES[droneIdx].cruise, act: 0, gnd }; }
 
 const routeGroup = new THREE.Group(); cityLocal.add(routeGroup);
@@ -594,7 +589,7 @@ function refreshRoute() {
     const foot = new THREE.Mesh(new THREE.RingGeometry(0.004 * u, 0.007 * u, 24), routeMats.foot); foot.rotation.x = -Math.PI / 2; foot.position.copy(g).add(new THREE.Vector3(0, 0.001 * u, 0)); routeGroup.add(foot);
     const pin = new THREE.Mesh(new THREE.OctahedronGeometry((sel ? 0.011 : 0.008) * u), warn ? routeMats.warn : sel ? routeMats.pinSel : routeMats.pin); pin.position.copy(p); routeGroup.add(pin);
     const lab = new THREE.Sprite(clipMat(new THREE.SpriteMaterial({ map: labelTex(String(i + 1), sel), depthTest: false, toneMapped: false }))); lab.position.copy(p).add(new THREE.Vector3(0, 0.022 * u, 0)); lab.scale.setScalar(0.022 * u); lab.renderOrder = 5; routeGroup.add(lab);
-    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.02 * u, 10, 8), routeMats.hit); hit.position.copy(p); hit.userData.wp = i; routeGroup.add(hit); pinHits.push(hit);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.032 * u, 10, 8), routeMats.hit); hit.position.copy(p); hit.userData.wp = i; routeGroup.add(hit); pinHits.push(hit);
     if (sel) {
       const h = new THREE.Group(); h.position.copy(p).add(new THREE.Vector3(0, 0.045 * u, 0));
       h.add(new THREE.Mesh(new THREE.ConeGeometry(0.008 * u, 0.016 * u, 20), routeMats.handle)).position.y = 0.012 * u;
@@ -607,7 +602,7 @@ function refreshRoute() {
   });
   if (waypoints.length) { const [seg] = cylBetween(prev, home, 0.0012 * u, routeMats.drop); routeGroup.add(seg); }
   ghost.visible = previewing && waypoints.length > 0;
-  planner.redraw(); consoleScreen.redraw();
+  dirtyUI = true;
 }
 // preview ghost
 const ghost = new THREE.Group();
@@ -731,7 +726,7 @@ launch.add(mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.02, 40), M.dark));
 const btnPts = [[0, 0], [0.036, 0], [0.04, 0.008], [0.038, 0.018], [0.028, 0.026], [0, 0.028]].map(([x, y]) => new THREE.Vector2(x, y));
 const launchBtn = mesh(new THREE.LatheGeometry(btnPts, 40), new THREE.MeshPhysicalMaterial({ color: 0xFF8A00, emissive: 0xFF6A00, emissiveIntensity: 0.6, roughness: 0.25, clearcoat: 1 }), 0, 0.01, 0); launch.add(launchBtn);
 const coverPivot = new THREE.Group(); coverPivot.position.set(0, 0.012, 0.05); launch.add(coverPivot);
-const cover = mesh(rbox(0.1, 0.05, 0.1, 0.01), new THREE.MeshPhysicalMaterial({ color: 0xFF3B30, transmission: 0.5, transparent: true, opacity: 0.55, roughness: 0.15, thickness: 0.01 }), 0, 0.025, -0.05); coverPivot.add(cover);
+const cover = mesh(rbox(0.1, 0.05, 0.1, 0.01), new THREE.MeshStandardMaterial({ color: 0xFF3B30, transparent: true, opacity: 0.5, roughness: 0.15, metalness: 0.1, depthWrite: false }), 0, 0.025, -0.05); coverPivot.add(cover);
 let coverOpen = 0, coverTarget = 0;
 cover.userData.click = () => { coverTarget = coverTarget ? 0 : 1; };
 launchBtn.userData.click = () => { if (coverOpen > 0.8) startLaunch(); else coverTarget = 1; };
@@ -789,7 +784,28 @@ const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 let yaw = 0, pitch = -0.2;
 const drag = { active: false, mode: null, moved: 0, sx: 0, sy: 0, lx: 0, ly: 0, wp: -1, snap: false, plane: new THREE.Plane(), last: new THREE.Vector3(), target: null, uv: null };
 const click3D = () => [viewBtns.fpv, viewBtns.los, launchBtn, cover];
-const mapTargets = () => cityMeshes.length ? cityMeshes.concat([tableHit]) : [tableHit];
+/** Where does this ray hit the city hologram? Marches along the ray and compares with the height grid. */
+const pm0 = new THREE.Vector3(), pm1 = new THREE.Vector3(), pmd = new THREE.Vector3(), pmw = new THREE.Vector3(), pml = new THREE.Vector3();
+function pickMap() {
+  cityLocal.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(cityLocal.matrixWorld).invert();
+  const o = ray.ray.origin, d = ray.ray.direction, STEP = 0.005;
+  let prevT = -1, prevAbove = false;
+  for (let t = 0.2; t < 4.5; t += STEP) {
+    pmw.copy(d).multiplyScalar(t).add(o);
+    if (!inClip(pmw)) { prevAbove = false; continue; }
+    pml.copy(pmw).applyMatrix4(inv);
+    const h = groundAt(pml.x, pml.z) / MPU, above = pml.y > h;
+    if (!above && prevAbove) { // crossed the surface between prevT and t: refine
+      let lo = prevT, hi = t;
+      for (let i = 0; i < 6; i++) { const mid = (lo + hi) / 2; pm0.copy(d).multiplyScalar(mid).add(o); pm1.copy(pm0).applyMatrix4(inv); if (pm1.y > groundAt(pm1.x, pm1.z) / MPU) lo = mid; else hi = mid; }
+      return { d: hi, point: pmd.copy(d).multiplyScalar(hi).add(o).clone() };
+    }
+    prevAbove = above; prevT = t;
+  }
+  const hp = ray.intersectObject(tableHit, false).find(h => inClip(h.point));   // fell through: use the table top
+  return hp ? { d: hp.distance, point: hp.point } : null;
+}
 const tableHit = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), new THREE.MeshBasicMaterial({ visible: false })); tableHit.rotation.x = -Math.PI / 2; tableHit.position.y = TABLE_Y + 0.008; table.add(tableHit);
 
 function classify(light = false) {
@@ -798,7 +814,7 @@ function classify(light = false) {
   if (altHandle) { const h = ray.intersectObject(altHandle, false)[0]; if (h && inClip(h.point)) hits.push({ d: h.distance - 0.05, kind: 'alt' }); }
   const pin = ray.intersectObjects(pinHits, false).find(h => inClip(h.point)); if (pin) hits.push({ d: pin.distance - 0.03, kind: 'pin', wp: pin.object.userData.wp, point: pin.point });
   const c3 = ray.intersectObjects(click3D(), false)[0]; if (c3) hits.push({ d: c3.distance, kind: '3d', obj: c3.object });
-  const mh = ray.intersectObjects(light ? [tableHit] : mapTargets(), false).find(h => inClip(h.point)); if (mh) hits.push({ d: mh.distance, kind: 'map', point: mh.point });
+  const mh = light ? ray.intersectObject(tableHit, false).find(h => inClip(h.point)) : pickMap(); if (mh) hits.push({ d: mh.distance ?? mh.d, kind: 'map', point: mh.point });
   hits.sort((a, b) => a.d - b.d); return hits[0] || null;
 }
 function hoverUpdate() {
@@ -920,11 +936,13 @@ const clock = new THREE.Clock(), reduce = matchMedia('(prefers-reduced-motion: r
 let hoverTick = 0;
 function update() {
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  if (dirtyUI && performance.now() - dirtyAt > 90) { dirtyUI = false; dirtyAt = performance.now(); planner.redraw(); consoleScreen.redraw(); }   // the planner is a big texture: redraw at most ~11x/s
   if (!renderer.xr.isPresenting) { camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.order = 'YXZ'; camera.rotation.y = yaw; camera.rotation.x = pitch; }
   else {
     for (const st of controllers) {
       setRayFrom(st.c); const h = classify(true); st.line.scale.z = h ? h.d : 3; st.dot.position.set(0, 0, -(h ? h.d : 3)); st.dot.visible = !!h;
-      if (st.held) { const ang = st.prevDir.angleTo(ray.ray.direction) * 900; drag.moved += ang; st.prevDir.copy(ray.ray.direction); move(); }
+      if (st.held) { const ang = st.prevDir.angleTo(ray.ray.direction) * 150; drag.moved += ang;   // ~2.3° of travel = a drag, normal hand tremor stays a click
+        st.prevDir.copy(ray.ray.direction); move(); }
       const ax = st.gamepad?.axes; if (ax && Math.abs(ax[3]) > 0.4) setZoom(zoom * (1 - ax[3] * dt * 1.2));
     }
     if (++hoverTick % 3 === 0 && controllers[1]) { setRayFrom(controllers[1].c); hoverUpdate(); }
