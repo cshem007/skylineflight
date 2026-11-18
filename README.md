@@ -19,6 +19,12 @@ Open the GitHub Pages link in the Quest browser or on a PC. The app detects the 
 | Camera tilt | R / F | LB / RB | grip L / R |
 | Back to cockpit | Esc | Esc | exit VR |
 
+## The city
+
+About 710 x 898 m (4.5x the original). The original model sits in the middle; its half-buildings are extruded into solid ones, every gap is filled, and a ring road + street grid with 800 more buildings grows around it, connected to the model's own streets. Windows light up at night from your real clock. Beyond the edge a red geofence wall glows as you approach, and a distant skyline fills the horizon.
+
+For FPV: open parking garages, arch towers and sky bridges to fly through, an elevated highway, narrow alleys, and towers up to about 130 m. The altitude ceiling is the real 120 m limit. How it is built: `tools/city/`.
+
 ## Flight setup (cockpit console)
 
 | Row | Options |
@@ -58,7 +64,7 @@ Open the GitHub Pages link in the Quest browser or on a PC. The app detects the 
 - **Obstacle braking** on Mini 4 Pro and Mavic 3 Pro in C / N (off in Sport, as on the real drones).
 - **Battery** drains with throttle; low-battery warning at 20 %, automatic return to home at 15 %.
 - **Crashes** from hard impacts; reset puts you back on the home pad.
-- **Street circuit:** 32 m altitude limit and a geofence over the open blocks of the city model.
+- **Geofence** at the edge of the city (a red wall), and the 120 m altitude ceiling.
 - **Real local time** drives sun and sky. Time and date are on every screen.
 
 - **Battery voltage:** per-cell model (Avata 2 / Mavic 3 Pro 4S, Mini 4 Pro / Neo 2S). Voltage sags under load and more when nearly empty; available power drops with it, so a tired pack climbs slower and needs more stick to hover.
@@ -86,4 +92,4 @@ Pushing to `main` builds and deploys to GitHub Pages (`.github/workflows/deploy.
 
 ## Assets
 
-`public/assets/city.glb` is the Sketchfab "City" model (Standard license), optimised with meshopt + WebP. The mesh names suggest it was extracted from another game, so it is used for development only; a properly licensed map replaces it before any public release.
+`public/assets/city.glb` is the Sketchfab "City" model (Standard license) plus generated geometry (see `tools/city/`), optimised with meshopt + WebP. The mesh names suggest it was extracted from another game, so it is used for development only; a properly licensed map replaces it before any public release.

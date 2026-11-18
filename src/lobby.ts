@@ -11,7 +11,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { settings, OPTIONS } from './settings';
 
 export interface LobbyConfig { droneIdx: number; missionIdx: number; view: 'fpv' | 'los' | 'imm'; waypoints: { x: number; z: number; alt: number; spd: number; act: number; action: string }[]; }
-export interface LobbyOptions { city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; groundAt: (xMetres: number, zMetres: number) => number; lite: boolean; }
+export interface LobbyOptions { defaultRoute: { x: number; z: number }[]; city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; groundAt: (xMetres: number, zMetres: number) => number; lite: boolean; }
 export interface LobbyApi {
   active: boolean; scene: THREE.Scene; camera: THREE.PerspectiveCamera; rig: THREE.Group;
   update(): void; resize(): void; enter(): void; leave(): void; getConfig(): LobbyConfig; setDeviceLabel(s: string): void;
@@ -515,8 +515,8 @@ const inClip = p => clipPlanes.every(pl => pl.distanceToPoint(p) >= -1e-4);
 const mapPivot = new THREE.Group(); mapPivot.position.set(0, TABLE_Y + 0.008, 0); table.add(mapPivot);
 const cityLocal = new THREE.Group(); mapPivot.add(cityLocal);
 const CITY_CENTER = new THREE.Vector3(7.3, 0.1, -6.35); cityLocal.position.copy(CITY_CENTER).negate();
-const BASE_SCALE = 0.98 / 24;   // the city's long side fits the clip box
-let zoom = 1, mapRot = 0;
+const BASE_SCALE = 0.98 / 46;   // the whole city (about 900 m) fits the clip box at zoom 1
+let zoom = 2.2, mapRot = 0;      // start zoomed in on the middle of the city
 const cityMeshes = [];
 function applyMapTransform() { mapPivot.scale.setScalar(BASE_SCALE * zoom); mapPivot.rotation.y = mapRot; }
 applyMapTransform();
@@ -560,7 +560,7 @@ const routeMats = {
   hit: new THREE.MeshBasicMaterial({ visible: false }),
   handle: clipMat(new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(1.8), toneMapped: false }))
 };
-const ALT_MAX = 32; // street-circuit altitude limit (matches the flight world)
+const ALT_MAX = 120; // legal ceiling (matches the flight world)
 function wpWarn(w) { const clr = w.alt - (w.gnd ?? 0); return w.alt > ALT_MAX ? `Above the ${ALT_MAX} m altitude limit` : clr < 8 ? `Only ${Math.max(0, clr).toFixed(0)} m above rooftop` : null; }
 function routeStats() {
   const d = DRONES[droneIdx]; let dist = 0, time = 0, prev = { x: HOME.x, z: HOME.z, alt: 0 }, maxAlt = 0;
@@ -935,12 +935,12 @@ boot(70, 'Loading fonts');
 await Promise.all(['600 26px "JetBrains Mono"', '700 40px "JetBrains Mono"', '500 20px "JetBrains Mono"', '700 40px "Space Grotesk"', '600 28px "Space Grotesk"', '400 26px "Space Grotesk"', '500 26px "Space Grotesk"'].map(f => document.fonts.load(f).catch(() => {})));
 paintSky(); setDrone(0); settings.onChange(() => consoleScreen.redraw()); missionPanel.redraw(); clockPanel.redraw();
 {
-  const c = opts.city.clone(true); c.scale.setScalar(1); c.position.set(0, 0, 0); c.updateMatrixWorld(true);
+  const c = opts.city.clone(true); c.scale.setScalar(1 / MPU);   // the lobby works in model units (1 unit = MPU metres) c.position.set(0, 0, 0); c.updateMatrixWorld(true);
   c.traverse(o => { if (o.isMesh) { const ms = (Array.isArray(o.material) ? o.material : [o.material]).map(m => { const k = m.clone(); k.clippingPlanes = clipPlanes; k.side = THREE.DoubleSide; if (k.color) k.color.multiplyScalar(0.62); k.envMapIntensity = 0.3; return k; }); o.material = Array.isArray(o.material) ? ms : ms[0]; o.castShadow = false; o.receiveShadow = true; cityMeshes.push(o); } });
   cityLocal.add(c); cityLocal.updateMatrixWorld(true);
 }
 snapshot(); undoStack.length = 0;
-waypoints = [[5.8, -9.5, 18, 2], [6.2, -13.5, 25, 0], [9.0, -12.5, 30, 4], [10.2, -8.0, 20, 1]].map(([x, z, alt, act]) => ({ ...newWp(x, z), alt, act }));
+waypoints = opts.defaultRoute.map((p, i) => ({ ...newWp(p.x / MPU, p.z / MPU), alt: [14, 22, 30, 18][i % 4], act: [2, 0, 4, 1][i % 4] }));   // 4 points along the streets, computed from the road network
 selected = 1; refreshRoute();
 setInterval(() => clockPanel.redraw(), 1000);
 setInterval(paintSky, 60000);

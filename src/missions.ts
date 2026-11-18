@@ -203,8 +203,8 @@ export class LineOfSight extends Mission {
   objectives = ['Controller view: keep the drone where you can see it.', 'Touch the 5 checkpoints in order.', 'Every second out of sight costs points; 10 s total fails.'];
   points: { pos: THREE.Vector3; mesh: THREE.Mesh }[] = []; next = 0; lost = 0;
   setup(env: MissionEnv) {
-    const eye = env.pilotEye, walk = env.world.streetWalk(env.fm.home, 1), cands: THREE.Vector3[] = [];
-    walk.dist.forEach((d, k) => { if (d < 25 || d > 140) return; const p = walk.pos(k); const gnd = env.world.groundAt(p.x, p.z); p.y = (Number.isNaN(gnd) ? 0 : gnd) + 8; const to = p.clone().sub(eye), L = to.length(); if (env.world.probe(eye, to.normalize(), L) >= L - 1 && L < 120) cands.push(p); });
+    const eye = env.pilotEye, walk = env.world.streetWalk(env.fm.home, 0), cands: THREE.Vector3[] = [];
+    walk.dist.forEach((d, k) => { if (d < 25 || d > 140) return; const p = walk.pos(k); if (!env.world.isOpenStreet(p.x, p.z, 1)) return; const gnd = env.world.groundAt(p.x, p.z); p.y = (Number.isNaN(gnd) ? 0 : gnd) + 8; const to = p.clone().sub(eye), L = to.length(); if (env.world.probe(eye, to.normalize(), L) >= L - 1 && L < 120) cands.push(p); });
     cands.sort(() => Math.random() - 0.5);
     for (const c of cands) { if (this.points.length >= 5) break; if (this.points.some(p => p.pos.distanceTo(c) < 25)) continue; const m = new THREE.Mesh(new THREE.SphereGeometry(2.2, 24, 16), glow(CYAN, 0.35)); m.position.copy(c); const l = label(String(this.points.length + 1)); l.position.y = 3.4; l.scale.setScalar(1.6); m.add(l); this.group.add(m); this.points.push({ pos: c, mesh: m }); }
     this.paint();

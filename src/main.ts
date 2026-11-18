@@ -227,9 +227,14 @@ rig.add(remote);
   const bar = (p: number, m: string) => { $<HTMLElement>('bar').style.width = `${Math.round(p * 100)}%`; $('loadmsg').textContent = m; };
   await world.load((p, m) => bar(p * 0.85, m));
   bar(0.9, 'Building the cockpit');
-  lobby = await createLobby(renderer, { city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch, groundAt: (x, z) => world.groundAt(x, z), lite: isQuest });
+  // a default 4-point route along the streets (never inside a building)
+  const walk = world.streetWalk(world.home, 0); let far = -1, fd = 0; walk.dist.forEach((d, k) => { if (d > fd && d < 340) { fd = d; far = k; } });
+  const path = far >= 0 ? walk.pathTo(far) : [world.home.clone()];
+  const defaultRoute = [0.25, 0.5, 0.75, 1].map(f => path[Math.min(path.length - 1, Math.floor(path.length * f))]).map(p => ({ x: p.x, z: p.z }));
+  lobby = await createLobby(renderer, { defaultRoute, city: world.city, home: world.home, deviceLabel: deviceName.toUpperCase(), onLaunch, groundAt: (x, z) => world.groundAt(x, z), lite: isQuest });
   briefing = new Briefing(renderer);
   applyQuality();
+  setInterval(() => world.updateSky(), 60000);
   bar(1, 'Ready');
   $('loading').hidden = true; $('start').hidden = false;
   resize();
@@ -449,7 +454,7 @@ function frame() {
   simulate(dt);
   if (state !== 'flight') return;          // simulate() may have sent us back to the lobby
   if (xr && mission?.done) view = 'fpv';   // results read best on the goggles screen
-  updateDroneCam(); updateDroneMesh(dt); updateLosCam(dt);
+  updateDroneCam(); updateDroneMesh(dt); updateLosCam(dt); world.updateFence(fm.pos);
 
   if (xr) {
     if (droneCam.aspect !== 16 / 9) { droneCam.aspect = 16 / 9; droneCam.updateProjectionMatrix(); }
