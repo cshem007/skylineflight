@@ -245,6 +245,9 @@ class UIPanel {
   constructor(wM, hM, ppm, draw, opts = {}) {
     this.W = Math.round(wM * ppm); this.H = Math.round(hM * ppm); this.cv = cnv(this.W, this.H); this.g = this.cv.getContext('2d');
     this.tex = new THREE.CanvasTexture(this.cv); this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.anisotropy = 16;
+    if (opts.minPx) { const g = this.g, mn = opts.minPx, P = CanvasRenderingContext2D.prototype;
+      const fix = () => { const m = /(\d+(?:\.\d+)?)px/.exec(g.font); if (m && +m[1] < mn) g.font = g.font.replace(m[0], mn + 'px'); };
+      g.fillText = (...a) => { fix(); return P.fillText.apply(g, a); }; g.measureText = (t) => { fix(); return P.measureText.call(g, t); }; }
     this.draw = draw; this.widgets = []; this.hover = null; this.group = new THREE.Group();
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(wM, hM), new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, toneMapped: false }));
     this.mesh.position.z = 0.016; this.mesh.userData.panel = this; this.group.add(this.mesh);
@@ -388,7 +391,7 @@ function buildDrone(key) {
    ========================================================= */
 boot(45, 'Prepping airframes');
 let droneIdx = 0, droneModel = null;
-const pedestal = new THREE.Group(); place(pedestal, -100, 1.75); pod.add(pedestal);
+const pedestal = new THREE.Group(); place(pedestal, -102, 1.75); pod.add(pedestal);
 {
   const pts = [[0, 0], [0.42, 0], [0.42, 0.04], [0.36, 0.06], [0.3, 0.1], [0.27, 0.78], [0.33, 0.82], [0.34, 0.86], [0, 0.86]].map(([x, y]) => new THREE.Vector2(x, y));
   pedestal.add(mesh(new THREE.LatheGeometry(pts, 64), M.frame));
@@ -420,8 +423,8 @@ const specPanel = new UIPanel(1.3, 0.92, 1100, (g, W, Hh, p) => {
   p.button('prev', 48, Hh - 130, 220, 84, '‹  PREV', () => setDrone(droneIdx - 1));
   p.button('next', W - 268, Hh - 130, 220, 84, 'NEXT  ›', () => setDrone(droneIdx + 1));
   p.button('sel', W / 2 - 170, Hh - 130, 340, 84, 'SELECTED', () => {}, { kind: 'primary', disabled: false });
-});
-place(specPanel.group, -100, 2.62, 1.6); specPanel.group.rotateX(-0.1); pod.add(specPanel.group);
+}, { minPx: 26 });
+place(specPanel.group, -126, 1.75, 1.75); specPanel.group.rotateX(-0.1); specPanel.group.scale.setScalar(1.15); pod.add(specPanel.group);
 
 function setDrone(i) {
   droneIdx = (i + DRONES.length) % DRONES.length;
@@ -458,8 +461,8 @@ const missionPanel = new UIPanel(1.2, 1.2, 1000, (g, W, Hh, p) => {
       txt(g, tag, x + w - tw / 2 - 30, y + 57, `600 20px ${FONT_M}`, on ? '#9FE6FF' : '#8FA3B5', 'center', 1);
     }, () => { missionIdx = i; missionPanel.redraw(); consoleScreen.redraw(); }, { active: on });
   });
-});
-place(missionPanel.group, 100, 2.55, 1.58); missionPanel.group.rotateX(-0.08); pod.add(missionPanel.group);
+}, { minPx: 26 });
+place(missionPanel.group, 100, 1.55, 1.75); missionPanel.group.rotateX(-0.08); missionPanel.group.scale.setScalar(1.15); pod.add(missionPanel.group);
 
 /* =========================================================
    FRONT-TOP: clock + status bar
@@ -474,8 +477,8 @@ const clockPanel = new UIPanel(2.3, 0.34, 900, (g, W, Hh, p) => {
   txt(g, 'INPUT DETECTED', 60, 168, `500 22px ${FONT_M}`, '#5E7385', 'left', 3);
   txt(g, 'WIND 4.2 m/s SW', W - 60, 120, `700 34px ${FONT_M}`, '#FFB020', 'right', 1);
   txt(g, (s.day > 0.5 ? 'DAYLIGHT' : s.dusk > 0.35 ? 'GOLDEN HOUR' : 'NIGHT') + ' · LOCAL TIME', W - 60, 168, `500 22px ${FONT_M}`, '#5E7385', 'right', 3);
-}, { back: true });
-place(clockPanel.group, 0, 2.3, 2.3); clockPanel.group.rotateX(0.16); pod.add(clockPanel.group);
+}, { back: true, minPx: 28 });
+place(clockPanel.group, 0, 2.4, 2.2); clockPanel.group.rotateX(0.16); clockPanel.group.scale.setScalar(1.15); pod.add(clockPanel.group);
 
 /* =========================================================
    FRONT: holographic map table with the real city
@@ -689,8 +692,8 @@ const planner = new UIPanel(1.06, 0.86, 1500, (g, W, Hh, p) => {
   tools.forEach(([id, l, fn, o], i) => p.button(id, 48 + i * (tw + 14), TY, tw, 76, l, fn, { size: 34, ...o }));
   txt(g, `ZOOM ${zoom.toFixed(1)}×`, 48, TY - 18, `500 20px ${FONT_M}`, '#5E7385', 'left', 2);
   txt(g, `SCALE 1 unit ≈ ${MPU} m (estimate)`, W - 48, TY - 18, `500 20px ${FONT_M}`, '#5E7385', 'right', 1);
-});
-place(planner.group, -58, 1.55, 1.06); planner.group.rotateX(-0.36); pod.add(planner.group);
+}, { minPx: 32 });
+place(planner.group, -55, 1.45, 1.78); planner.group.rotateX(-0.3); planner.group.scale.setScalar(1.25); pod.add(planner.group);
 { const stand = mesh(rbox(0.08, 0.95, 0.08, 0.02), M.frame); place(stand, -58, 1.64, 0.47); pod.add(stand); const foot = mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.03, 40), M.frame, 0, 0.015, 0); place(foot, -58, 1.64); foot.position.y = 0.015; pod.add(foot); }
 function setZoom(z) { zoom = THREE.MathUtils.clamp(z, 0.8, 6); applyMapTransform(); refreshRoute(); }
 
@@ -733,7 +736,7 @@ const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
   const note = forced ? 'This mission is flown in line of sight.' : ev === 'imm' ? 'Immersive: turn your head and the drone turns with you.' : !d.immersive ? `${d.name} has no immersive mode. Manual: Avata 2, Neo.` : '';
   txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 30, 346, `500 22px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
   if (note) txt(g, note, W - 30, 346, `400 20px ${FONT_D}`, '#8FA3B5', 'right');
-}, { back: false });
+}, { back: false, minPx: 30 });
 consoleScreen.group.position.set(0, 0.840, -0.083); consoleScreen.group.rotation.x = -1.2; consoleScreen.group.scale.setScalar(1.05); consoleG.add(consoleScreen.group);   // lies on the sloped top, behind the launch controls
 // guarded launch switch
 const launch = new THREE.Group(); launch.position.set(0.14, 0.738, 0.15); launch.rotation.x = 0.364; consoleG.add(launch);
@@ -1003,8 +1006,8 @@ const settingsPanel = new UIPanel(1.2, 1.45, 1000, (g, W, Hh, p) => {
     txt(g, settings.name(o), W - 228, y + 64, `700 28px ${FONT_M}`, '#FFB020', 'center');
     p.button('s+' + o.key, W - 108, y + 18, 72, 72, '›', () => { settings.step(o, 1); settingsPanel.redraw(); }, { size: 40 });
   });
-});
-place(settingsPanel.group, -150, 2.5, 1.5); settingsPanel.group.rotateX(-0.06); pod.add(settingsPanel.group);
+}, { minPx: 26 });
+place(settingsPanel.group, -186, 1.7, 1.6); settingsPanel.group.rotateX(-0.06); settingsPanel.group.scale.setScalar(1.15); pod.add(settingsPanel.group);
 settingsPanel.redraw();
 
 for (const [n, o] of [['planner', planner], ['spec', specPanel], ['mission', missionPanel], ['clock', clockPanel], ['screen', consoleScreen], ['settings', settingsPanel]]) o.group.name = n;
