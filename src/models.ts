@@ -119,7 +119,7 @@ export function buildRemote(screenTex: THREE.Texture, overlayTex: THREE.Texture)
     stick.add(mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.004, 16), plastic(0x111316), 0, 0.019, 0));
     sticks.push(stick);
   }
-  const mount = new THREE.Group(); mount.position.set(0, 0.03, -0.035); mount.rotation.x = -0.4; mount.scale.setScalar(1.3); g.add(mount);   // 30 % bigger than a real remote so the HUD is readable in VR
+  const mount = new THREE.Group(); mount.position.set(0, 0.03, -0.035); mount.rotation.x = -0.4; mount.scale.setScalar(2.4); g.add(mount); g.userData.mount = mount;   // much bigger than a real remote so it is easy to read in VR (Settings › Remote screen)
   mount.add(mesh(rbox(0.17, 0.1, 0.012, 0.008), body, 0, 0.05, 0));
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.155, 0.087), new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }));
   scr.position.set(0, 0.05, 0.0065); mount.add(scr);

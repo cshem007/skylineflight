@@ -4,7 +4,7 @@ import type { FlightModel } from './flight';
 
 export interface MissionEnv {
   world: World; fm: FlightModel; los: { visible: boolean; lostFor: number; dist: number };
-  pilotEye: THREE.Vector3; droneCam: THREE.PerspectiveCamera; view: 'fpv' | 'los';
+  pilotEye: THREE.Vector3; droneCam: THREE.PerspectiveCamera; view: 'fpv' | 'los' | 'imm';
 }
 export interface Objective { title: string; detail: string; progress?: number; }
 export interface Result { title: string; success: boolean; score: number; rows: [string, string][]; best: number | null; newBest: boolean; }

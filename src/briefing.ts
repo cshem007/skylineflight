@@ -5,7 +5,7 @@ import type { Drone } from './drones';
 
 const MONO = '"JetBrains Mono", ui-monospace, monospace', SANS = '"Space Grotesk", system-ui, sans-serif';
 
-export interface BriefInfo { drone: Drone; mission: string; objectives: string[]; view: 'fpv' | 'los'; controls: [string, string][]; startKey: string; }
+export interface BriefInfo { drone: Drone; mission: string; objectives: string[]; view: 'fpv' | 'los' | 'imm'; control: 'sticks' | 'motion'; controls: [string, string][]; startKey: string; }
 
 /** Pre-flight screen: the drone turning slowly on a pad, its capabilities, the mission brief and controls.
  *  A 3D scene so it works the same in VR (around you) and on PC (fixed camera). */
@@ -98,8 +98,10 @@ export class Briefing {
     const cx = 840;
     T('OBJECTIVE', cx, 274, `500 18px ${MONO}`, '#6E8496');
     i.objectives.forEach((o, n) => T(`›  ${o}`, cx, 314 + n * 38, `500 25px ${SANS}`, '#E8F0F6'));
-    T(i.view === 'fpv' ? 'VIEW · FPV GOGGLES' : 'VIEW · LINE OF SIGHT', cx, 314 + i.objectives.length * 38 + 20, `600 20px ${MONO}`, '#3FD0FF');
-    const cy = 520; T('CONTROLS', cx, cy, `500 18px ${MONO}`, '#6E8496');
+    const vy = 314 + i.objectives.length * 38 + 20;
+    T(`VIEW · ${({ fpv: 'FPV GOGGLES', los: 'LINE OF SIGHT', imm: 'IMMERSIVE 360' })[i.view]}`, cx, vy, `600 20px ${MONO}`, '#3FD0FF');
+    T(`CONTROL · ${i.control === 'motion' ? 'MOTION CONTROL' : 'REGULAR STICKS'}`, cx, vy + 28, `600 20px ${MONO}`, '#3FD0FF');
+    const cy = 540; T('CONTROLS', cx, cy, `500 18px ${MONO}`, '#6E8496');
     i.controls.forEach(([k, v], n) => { const y = cy + 40 + n * 36; T(k, cx, y, `600 22px ${MONO}`, '#E8F0F6'); T(v, cx + 230, y, `400 22px ${SANS}`, '#B8C8D6'); });
 
     // checks + progress

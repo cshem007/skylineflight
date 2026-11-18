@@ -19,6 +19,20 @@ Open the GitHub Pages link in the Quest browser or on a PC. The app detects the 
 | Camera tilt | R / F | LB / RB | grip L / R |
 | Back to cockpit | Esc | Esc | exit VR |
 
+## Flight setup (cockpit console)
+
+| Row | Options |
+|---|---|
+| **View** | **FPV goggles** (a fixed goggles screen, comfortable) · **Line of sight** (you stand on the street with a remote) · **Immersive 360** (Avata 2 and Neo, VR only) |
+| **Control** | **Regular sticks** · **Motion control** (one-hand, Quest controllers) |
+| **Start in** | Normal · Sport · Manual (acro; Avata 2 and Neo) |
+
+**Immersive 360:** your head is the drone's camera. With a stabilised mode (N / S) the drone turns where you look and the yaw stick turns your frame of reference. In Manual the camera is a 360 camera on an acro drone: the drone rotates from your sticks and you can look around freely. Squeeze both grips to recenter.
+
+**Motion control (right controller):** hold the trigger to fly, release to brake and hover. The drone flies where you point (point up to climb, down to dive) and turns when you turn your wrist away from where you pulled the trigger. Tilt your wrist to strafe. Left stick: altitude and strafe. In **Manual** mode the controller's tilt is the pitch/roll stick (nose down = forward), and the left stick is throttle and yaw.
+
+**Remote screen** size (Standard / Large / Huge) is in Settings.
+
 ## How a session flows
 
 1. **Cockpit lobby** (360°, VR or PC): pick a drone on the left display, a mission on the right board, plan a route on the holographic city table (click to add, drag pins, drag the arrow for height, planner panel for speed/action), choose FPV or line of sight, lift the red cover and press LAUNCH.

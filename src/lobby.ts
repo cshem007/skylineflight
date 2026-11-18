@@ -10,7 +10,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { settings, OPTIONS } from './settings';
 
-export interface LobbyConfig { droneIdx: number; missionIdx: number; view: 'fpv' | 'los'; waypoints: { x: number; z: number; alt: number; spd: number; act: number; action: string }[]; }
+export interface LobbyConfig { droneIdx: number; missionIdx: number; view: 'fpv' | 'los' | 'imm'; waypoints: { x: number; z: number; alt: number; spd: number; act: number; action: string }[]; }
 export interface LobbyOptions { city: THREE.Object3D; home: THREE.Vector3; deviceLabel: string; onLaunch: (c: LobbyConfig) => void; groundAt: (xMetres: number, zMetres: number) => number; lite: boolean; }
 export interface LobbyApi {
   active: boolean; scene: THREE.Scene; camera: THREE.PerspectiveCamera; rig: THREE.Group;
@@ -291,10 +291,10 @@ function chip(g, x, y, label, value, color) { txt(g, label, x, y, `500 20px ${FO
    Drones: detailed procedural models
    ========================================================= */
 const DRONES = [
-  { key: 'avata', name: 'Avata 2', cls: 'FPV · CINEWHOOP', blurb: 'Ducted FPV. Built for goggles, gaps and dives.', weight: '377 g', vmax: 27, time: 23, wind: 10.7, extra: ['CAMERA FOV', '155°'], modes: 'N · S · M', cruise: 8 },
-  { key: 'mini', name: 'Mini 4 Pro', cls: 'CAMERA · SUB-250 g', blurb: 'Light camera drone with all-round sensing.', weight: '249 g', vmax: 16, time: 34, wind: 10.7, extra: ['SENSING', '360°'], modes: 'C · N · S', cruise: 10 },
-  { key: 'mavic', name: 'Mavic 3 Pro', cls: 'CAMERA · PRO', blurb: 'Heavy, stable, triple camera. Flies like a truck.', weight: '958 g', vmax: 21, time: 43, wind: 12, extra: ['CAMERAS', '3'], modes: 'C · N · S', cruise: 12 },
-  { key: 'neo', name: 'Neo', cls: 'MICRO · PALM', blurb: 'Tiny, fully guarded. Easy indoors, weak in wind.', weight: '135 g', vmax: 16, time: 18, wind: 8, extra: ['GUARDS', 'Full'], modes: 'C · N · M', cruise: 6 }
+  { key: 'avata', ids: ['N', 'S', 'M'], immersive: true, name: 'Avata 2', cls: 'FPV · CINEWHOOP', blurb: 'Ducted FPV. Built for goggles, gaps and dives.', weight: '377 g', vmax: 27, time: 23, wind: 10.7, extra: ['CAMERA FOV', '155°'], modes: 'N · S · M', cruise: 8 },
+  { key: 'mini', ids: ['C', 'N', 'S'], immersive: false, name: 'Mini 4 Pro', cls: 'CAMERA · SUB-250 g', blurb: 'Light camera drone with all-round sensing.', weight: '249 g', vmax: 16, time: 34, wind: 10.7, extra: ['SENSING', '360°'], modes: 'C · N · S', cruise: 10 },
+  { key: 'mavic', ids: ['C', 'N', 'S'], immersive: false, name: 'Mavic 3 Pro', cls: 'CAMERA · PRO', blurb: 'Heavy, stable, triple camera. Flies like a truck.', weight: '958 g', vmax: 21, time: 43, wind: 12, extra: ['CAMERAS', '3'], modes: 'C · N · S', cruise: 12 },
+  { key: 'neo', ids: ['N', 'S', 'M'], immersive: true, name: 'Neo', cls: 'MICRO · PALM', blurb: 'Tiny, fully guarded. Easy indoors, weak in wind.', weight: '135 g', vmax: 16, time: 18, wind: 8, extra: ['GUARDS', 'Full'], modes: 'C · N · M', cruise: 6 }
 ];
 function plastic(color, rough = 0.42) { return new THREE.MeshPhysicalMaterial({ color, roughness: rough, metalness: 0.05, clearcoat: 0.5, clearcoatRoughness: 0.3 }); }
 const lensMat = new THREE.MeshPhysicalMaterial({ color: 0x05080B, metalness: 0.9, roughness: 0.04, clearcoat: 1, iridescence: 0.6, iridescenceIOR: 1.8 });
@@ -443,7 +443,8 @@ const MISSIONS = [
   ['Last 10 %', 'Low battery, rising wind. Get home in one piece.', 'Any'],
   ['My route', 'Fly the route you planned. Scored on accuracy.', 'Any']
 ];
-let missionIdx = 1, view = 'fpv';
+let missionIdx = 1, view = settings.v.view;   // the player's preferred view; the line-of-sight mission forces its own
+const effView = () => missionIdx === 3 ? 'los' : (view === 'imm' && !DRONES[droneIdx].immersive ? 'fpv' : view);
 const missionPanel = new UIPanel(1.2, 1.2, 1000, (g, W, Hh, p) => {
   p.bg('MISSIONS', 'SELECT ONE');
   const rowH = 158;
@@ -455,7 +456,7 @@ const missionPanel = new UIPanel(1.2, 1.2, 1000, (g, W, Hh, p) => {
       g.font = `600 20px ${FONT_M}`; const tw = g.measureText(tag).width + 28;
       g.fillStyle = on ? 'rgba(63,208,255,.2)' : 'rgba(255,255,255,.06)'; rr(g, x + w - tw - 30, y + 30, tw, 40, 20); g.fill();
       txt(g, tag, x + w - tw / 2 - 30, y + 57, `600 20px ${FONT_M}`, on ? '#9FE6FF' : '#8FA3B5', 'center', 1);
-    }, () => { missionIdx = i; if (i === 3) view = 'los'; missionPanel.redraw(); setView(view); }, { active: on });
+    }, () => { missionIdx = i; missionPanel.redraw(); consoleScreen.redraw(); }, { active: on });
   });
 });
 place(missionPanel.group, 100, 2.55, 1.58); missionPanel.group.rotateX(-0.08); pod.add(missionPanel.group);
@@ -704,21 +705,36 @@ const consoleG = new THREE.Group(); place(consoleG, 50, 1.4); pod.add(consoleG);
   consoleG.add(mesh(new THREE.BoxGeometry(0.7, 0.006, 0.006), glow(AMBER, 0.9), 0, 0.03, 0.215, { cast: false }));
 }
 const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
-  p.bg('FLIGHT READY', 'GPS 18 · BAT 100 %');
-  const st = routeStats();
-  txt(g, DRONES[droneIdx].name, 48, 190, `700 76px ${FONT_D}`, '#FFFFFF');
-  txt(g, `${MISSIONS[missionIdx][0]} · ${view === 'fpv' ? 'FPV goggles' : 'Line of sight'}`, 50, 252, `500 34px ${FONT_D}`, '#9FB0BF');
-  txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 50, 304, `500 30px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
+  p.bg();
+  const d = DRONES[droneIdx], ev = effView(), forced = missionIdx === 3, st = routeStats();
+  txt(g, 'FLIGHT SETUP', 30, 42, `600 22px ${FONT_M}`, '#7FB9D6', 'left', 4);
+  txt(g, `${d.name} · ${MISSIONS[missionIdx][0]}`, W - 30, 42, `500 22px ${FONT_M}`, '#8FA3B5', 'right', 1);
+  const row = (y, label, items) => {
+    txt(g, label, 30, y + 46, `600 21px ${FONT_M}`, '#6E8496', 'left', 3);
+    const x0 = 188, gap = 10, w = (W - x0 - 26 - gap * (items.length - 1)) / items.length;
+    items.forEach((it, i) => p.button(it.id, x0 + i * (w + gap), y, w, 70, it.label, it.onClick, { size: 23, active: it.active, disabled: it.disabled }));
+  };
+  const setV = v => { view = v; settings.set('view', v); };
+  row(62, 'VIEW', [
+    { id: 'v-fpv', label: 'FPV GOGGLES', active: ev === 'fpv', disabled: forced, onClick: () => setV('fpv') },
+    { id: 'v-los', label: 'LINE OF SIGHT', active: ev === 'los', disabled: false, onClick: () => setV('los') },
+    { id: 'v-imm', label: 'IMMERSIVE 360', active: ev === 'imm', disabled: forced || !d.immersive, onClick: () => setV('imm') }
+  ]);
+  row(146, 'CONTROL', [
+    { id: 'c-sticks', label: 'REGULAR STICKS', active: settings.v.control === 'sticks', onClick: () => settings.set('control', 'sticks') },
+    { id: 'c-motion', label: 'MOTION CONTROL', active: settings.v.control === 'motion', onClick: () => settings.set('control', 'motion') }
+  ]);
+  const has = id => d.ids.includes(id), sm = has(settings.v.startMode) ? settings.v.startMode : 'N';
+  row(230, 'START IN', [
+    { id: 'm-N', label: 'NORMAL', active: sm === 'N', disabled: !has('N'), onClick: () => settings.set('startMode', 'N') },
+    { id: 'm-S', label: 'SPORT', active: sm === 'S', disabled: !has('S'), onClick: () => settings.set('startMode', 'S') },
+    { id: 'm-M', label: 'MANUAL', active: sm === 'M', disabled: !has('M'), onClick: () => settings.set('startMode', 'M') }
+  ]);
+  const note = forced ? 'This mission is flown in line of sight.' : ev === 'imm' ? 'Immersive: turn your head and the drone turns with you.' : !d.immersive ? `${d.name} has no immersive mode. Manual: Avata 2, Neo.` : '';
+  txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 30, 346, `500 22px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
+  if (note) txt(g, note, W - 30, 346, `400 20px ${FONT_D}`, '#8FA3B5', 'right');
 }, { back: false });
-consoleScreen.group.position.set(-0.03, 0.838, -0.068); consoleScreen.group.rotation.x = -1.2; consoleScreen.group.scale.setScalar(0.9); consoleG.add(consoleScreen.group);   // lies on the sloped top, behind the controls
-// view selector: two lit buttons
-const viewBtns = {};
-[['fpv', -0.13, 'FPV'], ['los', -0.03, 'LOS']].forEach(([k, x, l]) => {
-  const b = mesh(rbox(0.08, 0.025, 0.055, 0.008), glow(CYAN, 0.5), x, 0.745, 0.15); b.rotation.x = 0.364; b.userData.click = () => setView(k); consoleG.add(b); viewBtns[k] = b;
-  const lc = cnv(128, 64), lg = lc.getContext('2d'); txt(lg, l, 64, 44, `700 36px ${FONT_M}`, '#04121A', 'center');
-  const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 0.03), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(lc), transparent: true, toneMapped: false })); lab.rotation.x = -1.2; lab.position.set(x, 0.7625, 0.151); consoleG.add(lab);
-});
-function setView(v) { view = v; for (const k in viewBtns) viewBtns[k].material.color.set(new THREE.Color(k === v ? (k === 'fpv' ? CYAN : GREEN) : 0x1A2A35).multiplyScalar(k === v ? 1.2 : 1)); consoleScreen.redraw(); }
+consoleScreen.group.position.set(0, 0.840, -0.083); consoleScreen.group.rotation.x = -1.2; consoleScreen.group.scale.setScalar(1.05); consoleG.add(consoleScreen.group);   // lies on the sloped top, behind the launch controls
 // guarded launch switch
 const launch = new THREE.Group(); launch.position.set(0.14, 0.738, 0.15); launch.rotation.x = 0.364; consoleG.add(launch);
 launch.add(mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.02, 40), M.dark));
@@ -770,7 +786,7 @@ fadeQuad.position.z = -0.25; fadeQuad.renderOrder = 999; camera.add(fadeQuad);
 const cardPanel = new UIPanel(0.36, 0.12, 2400, (g, W, Hh) => {
   txt(g, 'LAUNCHING', W / 2, 90, `600 40px ${FONT_M}`, '#3FD0FF', 'center', 10);
   txt(g, `${DRONES[droneIdx].name} · ${MISSIONS[missionIdx][0]}`, W / 2, 190, `700 72px ${FONT_D}`, '#FFFFFF', 'center');
-  txt(g, view === 'fpv' ? 'FPV goggles view' : 'Controller · line of sight view', W / 2, 250, `500 34px ${FONT_D}`, '#8FA3B5', 'center');
+  txt(g, ({ fpv: 'FPV goggles view', los: 'Controller · line of sight view', imm: 'Immersive 360 · head tracked' })[effView()], W / 2, 250, `500 34px ${FONT_D}`, '#8FA3B5', 'center');
 }, { back: false });
 cardPanel.mesh.material.depthTest = false; cardPanel.mesh.renderOrder = 1000; cardPanel.group.position.z = -0.22; cardPanel.mesh.material.opacity = 0; camera.add(cardPanel.group);
 panels.splice(panels.indexOf(cardPanel), 1);
@@ -783,7 +799,7 @@ function startLaunch() { if (launchT >= 0) return; cardPanel.redraw(); launchT =
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 let yaw = 0, pitch = -0.2;
 const drag = { active: false, mode: null, moved: 0, sx: 0, sy: 0, lx: 0, ly: 0, wp: -1, snap: false, plane: new THREE.Plane(), last: new THREE.Vector3(), target: null, uv: null };
-const click3D = () => [viewBtns.fpv, viewBtns.los, launchBtn, cover];
+const click3D = () => [launchBtn, cover];
 /** Where does this ray hit the city hologram? Marches along the ray and compares with the height grid. */
 const pm0 = new THREE.Vector3(), pm1 = new THREE.Vector3(), pmd = new THREE.Vector3(), pmw = new THREE.Vector3(), pml = new THREE.Vector3();
 function pickMap() {
@@ -917,7 +933,7 @@ function resize() {
    ========================================================= */
 boot(70, 'Loading fonts');
 await Promise.all(['600 26px "JetBrains Mono"', '700 40px "JetBrains Mono"', '500 20px "JetBrains Mono"', '700 40px "Space Grotesk"', '600 28px "Space Grotesk"', '400 26px "Space Grotesk"', '500 26px "Space Grotesk"'].map(f => document.fonts.load(f).catch(() => {})));
-paintSky(); setView('fpv'); setDrone(0); missionPanel.redraw(); clockPanel.redraw();
+paintSky(); setDrone(0); settings.onChange(() => consoleScreen.redraw()); missionPanel.redraw(); clockPanel.redraw();
 {
   const c = opts.city.clone(true); c.scale.setScalar(1); c.position.set(0, 0, 0); c.updateMatrixWorld(true);
   c.traverse(o => { if (o.isMesh) { const ms = (Array.isArray(o.material) ? o.material : [o.material]).map(m => { const k = m.clone(); k.clippingPlanes = clipPlanes; k.side = THREE.DoubleSide; if (k.color) k.color.multiplyScalar(0.62); k.envMapIntensity = 0.3; return k; }); o.material = Array.isArray(o.material) ? ms : ms[0]; o.castShadow = false; o.receiveShadow = true; cityMeshes.push(o); } });
@@ -975,7 +991,7 @@ function update() {
 /* =========================================================
    BEHIND-LEFT: settings (saved on this device)
    ========================================================= */
-const settingsPanel = new UIPanel(1.2, 1.3, 1000, (g, W, Hh, p) => {
+const settingsPanel = new UIPanel(1.2, 1.45, 1000, (g, W, Hh, p) => {
   p.bg('SETTINGS', 'SAVED ON THIS DEVICE');
   const ROW = 122, top = 104;
   OPTIONS.forEach((o, i) => {
@@ -995,7 +1011,7 @@ for (const [n, o] of [['planner', planner], ['spec', specPanel], ['mission', mis
 table.name = 'table'; consoleG.name = 'console'; pedestal.name = 'pedestal'; launch.name = 'launch'; cover.name = 'cover';
 
 function getConfig() {
-  return { droneIdx, missionIdx, view, waypoints: waypoints.map(w => ({ x: w.x * MPU, z: w.z * MPU, alt: w.alt, spd: w.spd, act: w.act, action: ACTIONS[w.act] })) };
+  return { droneIdx, missionIdx, view: effView(), waypoints: waypoints.map(w => ({ x: w.x * MPU, z: w.z * MPU, alt: w.alt, spd: w.spd, act: w.act, action: ACTIONS[w.act] })) };
 }
 function enter() { api.active = true; launchT = -1; launchFired = false; coverTarget = 0; fadeQuad.material.opacity = 0; cardPanel.mesh.material.opacity = 0; clock.getDelta(); resize(); }
 function leave() { api.active = false; }

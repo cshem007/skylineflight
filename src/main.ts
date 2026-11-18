@@ -14,7 +14,7 @@ import { settings, qualityPreset } from './settings';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-type View = 'fpv' | 'los';
+type View = 'fpv' | 'los' | 'imm';   // goggles screen · controller line of sight · immersive 360 (head tracked)
 type AppState = 'boot' | 'lobby' | 'briefing' | 'flight';
 interface LaunchConfig { droneIdx: number; missionIdx: number; view: View; waypoints: Waypoint[]; }
 
@@ -41,6 +41,13 @@ const rcRt = new THREE.WebGLRenderTarget(960, 540, { colorSpace: THREE.SRGBColor
 const rcCanvas = document.createElement('canvas'); rcCanvas.width = 960; rcCanvas.height = 540;
 const rcCtx = rcCanvas.getContext('2d')!, rcTex = new THREE.CanvasTexture(rcCanvas); rcTex.colorSpace = THREE.SRGBColorSpace;
 const remote = buildRemote(rcRt.texture, rcTex); remote.visible = false;
+const applyRemoteScale = () => (remote.userData.mount as THREE.Object3D).scale.setScalar(settings.v.remote);
+applyRemoteScale();
+
+// Immersive 360: your head is the drone's camera. The HUD is a head-locked plane in front of you.
+const imm = { headQ: new THREE.Quaternion(), headP: new THREE.Vector3(), neutralQ: new THREE.Quaternion(), neutralP: new THREE.Vector3(), yawOff: 0, has: false };
+const immHud = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.844), new THREE.MeshBasicMaterial({ map: goggles.hudTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+immHud.position.set(0, 0, -1.8); immHud.renderOrder = 999; immHud.visible = false; xrCam.add(immHud);
 
 const world = new World();
 const input = new Input();
@@ -76,7 +83,7 @@ function applyQuality() {
   goggles.setQuality(q.feed[0], q.feed[1], q.samples);
   renderer.shadowMap.enabled = q.shadows;
   renderer.xr.setFoveation(q.foveation);
-  goggles.setScale(settings.v.screen);
+  goggles.setScale(settings.v.screen); applyRemoteScale();
   const session = renderer.xr.getSession() as (XRSession & { supportedFrameRates?: Float32Array; updateTargetFrameRate?: (r: number) => Promise<void> }) | null;
   if (session?.supportedFrameRates && session.updateTargetFrameRate) {
     const rates = [...session.supportedFrameRates], want = rates.includes(q.frameRate) ? q.frameRate : rates[0];
@@ -87,6 +94,10 @@ settings.onChange(() => { applyQuality(); resize(); });
 
 /* ---------- boot screen ---------- */
 function controlRows(): [string, string][] {
+  if ((isQuest || input.source === 'quest') && settings.v.control === 'motion') return [
+    ['Right trigger', 'fly (hold) · release = hover'], ['Point controller', 'up = climb · down = dive'], ['Turn your wrist', 'turn the drone'],
+    ['Tilt wrist', 'strafe'], ['Left stick', 'altitude · strafe'], ['Manual mode', 'tilt controller = tilt drone'], ['A · B · X · Y', 'take off · home · mode · view']
+  ];
   const src = isQuest || input.source === 'quest' ? 'quest' : input.source === 'gamepad' || [...(navigator.getGamepads?.() ?? [])].some(Boolean) ? 'gamepad' : 'keyboard';
   return ({
     keyboard: [['W / S', 'throttle (climb / descend)'], ['A / D', 'yaw'], ['↑ ↓ ← →', 'pitch / roll'], ['Enter', 'take off · land · reset'], ['H', 'return to home'], ['M', 'flight mode'], ['V', 'FPV ↔ line of sight'], ['R / F', 'camera tilt'], ['Esc', 'back to cockpit']],
@@ -117,7 +128,7 @@ function goLobby() {
 function onLaunch(c: LaunchConfig) {
   cfg = c; lobby!.leave(); state = 'briefing'; $('chip').hidden = true; $('vr2').hidden = true;
   const m = createMission(c.missionIdx, c.waypoints);
-  briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, controls: controlRows().slice(0, 7), startKey: startKey() });
+  briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, control: settings.v.control, controls: controlRows().slice(0, 7), startKey: startKey() });
   mission = m; launchQueued = false;
   prepareFlight();
 }
@@ -126,7 +137,9 @@ let prepared = false;
 function prepareFlight() {
   prepared = false;
   const d = DRONES[cfg.droneIdx], t0 = performance.now();
-  fm.setDrone(d); world.setDroneRadius(d.radius); resetToHome(); gimbal = 0; fm.battery = 1;
+  fm.setDrone(d); world.setDroneRadius(d.radius);
+  const si = d.modes.findIndex(m => m.id === settings.v.startMode); if (si >= 0) fm.modeIdx = si;      // Settings: start in Normal / Sport / Manual
+  resetToHome(); gimbal = 0; fm.battery = 1;
   droneCam.fov = d.vfov; droneCam.updateProjectionMatrix();
   if (droneMesh) world.scene.remove(droneMesh);
   droneMesh = buildDrone(d.id); droneMesh.visible = false; world.scene.add(droneMesh);
@@ -147,6 +160,7 @@ function startFlight() {
   if (!prepared) return;                       // still compiling: the briefing keeps the queued press and launches when done
   view = mission?.forceView ?? cfg.view;
   const d = DRONES[cfg.droneIdx];
+  if (view === 'imm' && (!renderer.xr.isPresenting || !d.immersive)) view = 'fpv';      // immersive needs a headset and a goggles drone
   if (fm.drone.id !== d.id) { fm.setDrone(d); }
   if (droneMesh) droneMesh.visible = true;
   autoRthDone = mission!.id === 'last10';
@@ -171,8 +185,10 @@ function placePilot() {
   }
   pilot.copy(best ?? h.clone().add(new THREE.Vector3(0, 0, 5)));
   losCam.position.copy(pilot).add(new THREE.Vector3(0, 1.7, 0)); losCam.lookAt(h);
-  rig.position.copy(pilot); rig.rotation.set(0, Math.atan2(-(h.x - pilot.x), -(h.z - pilot.z)), 0); rig.updateMatrixWorld(true);
+  pilotYaw = Math.atan2(-(h.x - pilot.x), -(h.z - pilot.z));
+  rig.position.copy(pilot); rig.rotation.set(0, pilotYaw, 0); rig.updateMatrixWorld(true);
 }
+let pilotYaw = 0;
 function env(): MissionEnv { return { world, fm, los, pilotEye: pilot.clone().add(new THREE.Vector3(0, 1.7, 0)), droneCam, view }; }
 
 $('fly').onclick = e => { (e.currentTarget as HTMLElement).blur(); if (state !== 'boot') return; sound.start(); goLobby(); };
@@ -227,8 +243,19 @@ const before = new THREE.Vector3(), after = new THREE.Vector3(), dir = new THREE
 const WIND_DIR = new THREE.Vector3(1, 0, -1).normalize(); // from SW, blowing to NE
 const turb = new THREE.Vector3();
 
+let lastSticks = input.sticks;   // what the flight model last received (test hook)
+function cycleView() {
+  const order: View[] = fm.drone.immersive && renderer.xr.isPresenting ? ['fpv', 'imm', 'los'] : ['fpv', 'los'];
+  view = order[(order.indexOf(view) + 1) % order.length]; if (view !== 'los') needRecenter = true;
+}
+function recenterImmersive() {
+  imm.neutralQ.copy(imm.headQ); imm.neutralP.copy(imm.headP);
+  tmpE.setFromQuaternion(imm.headQ, 'YXZ'); imm.yawOff = fm.yaw - tmpE.y;   // looking straight ahead = the way the drone faces
+}
+
 function simulate(dt: number) {
-  const s = input.sticks;
+  let s = input.sticks;
+  input.manualMode = fm.manual;
   if (mission?.done) {
     if (input.justPressed('arm')) { goLobby(); return; }
   } else if (input.justPressed('arm')) {
@@ -238,8 +265,8 @@ function simulate(dt: number) {
   }
   if (input.justPressed('rth') && !fm.manual && fm.armed && mission?.id !== 'last10') fm.phase = fm.phase === 'rth' ? 'flying' : 'rth';
   if (input.justPressed('mode')) fm.cycleMode();
-  if (input.justPressed('view') && !mission?.forceView) { view = view === 'fpv' ? 'los' : 'fpv'; if (view === 'fpv') needRecenter = true; }
-  if (input.justPressed('recenter')) needRecenter = true;
+  if (input.justPressed('view') && !mission?.forceView) cycleView();
+  if (input.justPressed('recenter')) { needRecenter = true; input.recenterMotion(); }
   const tiltDir = (input.isHeld('tiltUp') ? 1 : 0) - (input.isHeld('tiltDown') ? 1 : 0);
   if (fm.manual) fm.camTilt = THREE.MathUtils.clamp(fm.camTilt + tiltDir * 30 * dt, 0, 50);
   else gimbal = THREE.MathUtils.clamp(gimbal + tiltDir * 30 * dt, -90, 20);
@@ -255,6 +282,15 @@ function simulate(dt: number) {
   fm.wind.copy(WIND_DIR).multiplyScalar(wk).add(turb.set(Math.sin(windT * 1.7) * 0.6, Math.sin(windT * 1.3 + 2) * 0.35, Math.sin(windT * 2.1 + 4) * 0.6).multiplyScalar(wk * 0.25));
   warnings = [];
   const wasCrashed = fm.phase === 'crashed';
+  // Immersive 360 with a stabilised drone: it faces where you look. The yaw stick turns your frame of reference.
+  const immersive = view === 'imm' && renderer.xr.isPresenting && imm.has;
+  if (immersive && !fm.manual && fm.phase !== 'rth' && fm.phase !== 'crashed') {
+    tmpE.setFromQuaternion(imm.headQ, 'YXZ');
+    imm.yawOff -= s.yaw * THREE.MathUtils.degToRad(fm.mode.yawRate) * dt;
+    fm.yaw = imm.yawOff + tmpE.y;
+    s = { ...s, yaw: 0 };
+  }
+  lastSticks = s;
 
   acc += dt; let n = 0;
   while (acc >= STEP && n++ < 10) {
@@ -286,6 +322,7 @@ function simulate(dt: number) {
     fm.vel.copy(after);
   }
   const p1 = world.body.translation(); fm.pos.set(p1.x, p1.y, p1.z);
+  if (immersive && fm.phase === 'rth') { tmpE.setFromQuaternion(imm.headQ, 'YXZ'); imm.yawOff = fm.yaw - tmpE.y; }   // the autopilot turns the drone: your view turns with it
 
   const eye = tmp.copy(pilot).add(new THREE.Vector3(0, 1.7, 0)), toD = fm.pos.clone().sub(eye); los.dist = toD.length();
   const blocked = world.probe(eye, toD.clone().normalize(), los.dist) < los.dist - fm.drone.radius * 2;
@@ -377,6 +414,8 @@ function updateRemote() {
 /* ---------- frame ---------- */
 let hudTick = 0;
 let fpsAvg = 60, frames = 0;
+const motionQ = { left: new THREE.Quaternion(), right: new THREE.Quaternion() };
+const Y_AXIS = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3(), tmpQ2 = new THREE.Quaternion();
 function frame() {
   frames++;
   const now = performance.now(), raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
@@ -384,8 +423,16 @@ function frame() {
   const xr = renderer.xr.isPresenting;
   if (xr) {
     const session = renderer.xr.getSession()!; const pads: typeof input.xrGamepads = {};
-    for (const src of session.inputSources) if (src.gamepad) pads[src.handedness as 'left' | 'right'] = src.gamepad;
-    input.xrGamepads = pads;
+    const xf = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(), poses: typeof input.motion = {};
+    for (const src of session.inputSources) {
+      const hand = src.handedness; if (!src.gamepad || (hand !== 'left' && hand !== 'right')) continue;
+      pads[hand] = src.gamepad;
+      const pose = xf && ref && src.targetRaySpace ? xf.getPose(src.targetRaySpace, ref) : null;   // controller pose, for motion control
+      if (pose) { const o = pose.transform.orientation; motionQ[hand].set(o.x, o.y, o.z, o.w); poses[hand] = { q: motionQ[hand], trigger: src.gamepad.buttons[0]?.value ?? 0 }; }
+    }
+    input.xrGamepads = pads; input.motion = poses;
+    const vp = xf && ref ? xf.getViewerPose(ref) : null;                                                // your head, for immersive 360
+    if (vp) { const o = vp.transform.orientation, p = vp.transform.position; imm.headQ.set(o.x, o.y, o.z, o.w); imm.headP.set(p.x, p.y, p.z); imm.has = true; }
   }
   input.update();
 
@@ -407,21 +454,32 @@ function frame() {
   if (xr) {
     if (droneCam.aspect !== 16 / 9) { droneCam.aspect = 16 / 9; droneCam.updateProjectionMatrix(); }
     const hudOn = ++hudTick % 2 === 0;
-    if (view === 'fpv') {
+    immHud.visible = view === 'imm';
+    if (view === 'imm') {
+      // your head is the drone's camera: the rig sits at the drone, turned so your head direction is the view direction
+      if (needRecenter) { recenterImmersive(); needRecenter = false; }
+      if (fm.manual) rig.quaternion.copy(fm.quat).multiply(tmpQ.setFromAxisAngle(X, THREE.MathUtils.degToRad(fm.camTilt))).multiply(tmpQ2.copy(imm.neutralQ).invert());   // 360 camera on an acro drone
+      else rig.quaternion.setFromAxisAngle(Y_AXIS, imm.yawOff);                                                                                                           // level, head-driven view
+      rig.position.copy(fm.pos).sub(tmpV.copy(imm.neutralP).applyQuaternion(rig.quaternion));
+      rig.updateMatrixWorld(true); remote.visible = false; if (droneMesh) droneMesh.visible = false;
+      immHud.scale.setScalar(settings.v.screen);
+      if (hudOn) { drawHud(gogglesCtx, 1920, 1080, hudState()); goggles.hudTex.needsUpdate = true; }
+      renderer.render(world.scene, xrCam);
+    } else if (view === 'fpv') {
       rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.updateMatrixWorld(true); remote.visible = false;
       if (needRecenter) { goggles.recenter(renderer.xr.getCamera()); needRecenter = false; }
       renderFeed(goggles.rt);
       if (hudOn) { drawHud(gogglesCtx, 1920, 1080, hudState()); goggles.hudTex.needsUpdate = true; }
       renderer.render(goggles.scene, xrCam);
     } else {
-      rig.position.copy(pilot); rig.updateMatrixWorld(true); updateRemote();
+      rig.position.copy(pilot); rig.rotation.set(0, pilotYaw, 0); rig.updateMatrixWorld(true); updateRemote();
       renderFeed(rcRt);
       if (hudOn) { drawRemoteHud(rcCtx, 960, 540, hudState()); rcTex.needsUpdate = true; }
       renderer.render(world.scene, xrCam);
     }
   } else {
     const W = innerWidth, H = innerHeight;
-    if (view === 'fpv') {
+    if (view !== 'los') {
       if (droneCam.aspect !== W / H) { droneCam.aspect = W / H; droneCam.updateProjectionMatrix(); }
       if (droneMesh) droneMesh.visible = false;
       renderer.render(world.scene, droneCam);
@@ -430,7 +488,7 @@ function frame() {
       if (losCam.aspect !== W / H) { losCam.aspect = W / H; losCam.updateProjectionMatrix(); }
       if (droneMesh) droneMesh.visible = true;
       renderer.render(world.scene, losCam);
-      const pw = Math.min(W * 0.34, 520), ph = pw * 9 / 16, px = (W - pw) / 2, py = 28;
+      const rk = settings.v.remote / 1.3, pw = Math.min(W * Math.min(0.62, 0.34 * rk * 0.8), 520 * rk), ph = pw * 9 / 16, px = (W - pw) / 2, py = 28;   // Settings › Remote screen
       if (droneCam.aspect !== 16 / 9) { droneCam.aspect = 16 / 9; droneCam.updateProjectionMatrix(); }
       if (droneMesh) droneMesh.visible = false;
       renderer.setScissorTest(true); renderer.setScissor(px, py, pw, ph); renderer.setViewport(px, py, pw, ph);
@@ -467,4 +525,4 @@ function resize() {
 addEventListener('resize', resize);
 
 // test hook: lets automated checks read and drive the sim
-(window as unknown as { __sim: unknown }).__sim = { THREE, pilot, fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, perf, get mission() { return mission; }, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
+(window as unknown as { __sim: unknown }).__sim = { THREE, pilot, fm, world, los, input, renderer, droneCam, get state() { return state; }, get frames() { return frames; }, perf, get mission() { return mission; }, get view() { return view; }, remote, get sticks() { return lastSticks; }, get warn() { return warnings; }, imm, settings, rig, launch: (c: LaunchConfig) => onLaunch(c), lobby: () => lobby };
