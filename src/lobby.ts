@@ -737,7 +737,7 @@ const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
   txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 30, 346, `500 22px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
   if (note) txt(g, note, W - 30, 346, `400 20px ${FONT_D}`, '#8FA3B5', 'right');
 }, { back: false, minPx: 30 });
-consoleScreen.group.position.set(0, 0.840, -0.083); consoleScreen.group.rotation.x = -1.2; consoleScreen.group.scale.setScalar(1.05); consoleG.add(consoleScreen.group);   // lies on the sloped top, behind the launch controls
+place(consoleScreen.group, 36, 1.35, 1.7); consoleScreen.group.rotateX(-0.18); consoleScreen.group.scale.setScalar(1.75); pod.add(consoleScreen.group);   // big floating Flight Setup panel above the console, tilted to the pilot   // lies on the sloped top, behind the launch controls
 // guarded launch switch
 const launch = new THREE.Group(); launch.position.set(0.14, 0.738, 0.15); launch.rotation.x = 0.364; consoleG.add(launch);
 launch.add(mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.02, 40), M.dark));
