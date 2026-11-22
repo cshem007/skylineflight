@@ -46,8 +46,12 @@ applyRemoteScale();
 
 // Immersive 360: your head is the drone's camera. The HUD is a head-locked plane in front of you.
 const imm = { headQ: new THREE.Quaternion(), headP: new THREE.Vector3(), neutralQ: new THREE.Quaternion(), neutralP: new THREE.Vector3(), yawOff: 0, has: false };
-const immHud = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.844), new THREE.MeshBasicMaterial({ map: goggles.hudTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
-immHud.position.set(0, 0, -1.8); immHud.renderOrder = 999; immHud.visible = false; xrCam.add(immHud);
+// Immersive HUD: a curved visor of glass in front of your eyes (like wearing HUD glasses), locked to your head. 76° x 43°, text ~1.2° tall.
+const VISOR_R = 1.4, VISOR_A = THREE.MathUtils.degToRad(76), VISOR_H = VISOR_R * VISOR_A * 9 / 16;
+const visorGeo = new THREE.CylinderGeometry(VISOR_R, VISOR_R, VISOR_H, 64, 1, true, Math.PI - VISOR_A / 2, VISOR_A);
+{ const uv = visorGeo.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setX(k, 1 - uv.getX(k)); }   // seen from inside
+const immHud = new THREE.Mesh(visorGeo, new THREE.MeshBasicMaterial({ map: goggles.hudTex, transparent: true, side: THREE.BackSide, depthTest: false, depthWrite: false, toneMapped: false }));
+immHud.renderOrder = 999; immHud.visible = false; xrCam.add(immHud);
 
 const world = new World();
 const input = new Input();
@@ -94,10 +98,6 @@ settings.onChange(() => { applyQuality(); resize(); });
 
 /* ---------- boot screen ---------- */
 function controlRows(): [string, string][] {
-  if ((isQuest || input.source === 'quest') && settings.v.control === 'motion') return [
-    ['Right trigger', 'fly (hold) · release = hover'], ['Point controller', 'up = climb · down = dive'], ['Turn your wrist', 'turn the drone'],
-    ['Tilt wrist', 'strafe'], ['Left stick', 'altitude · strafe'], ['Manual mode', 'tilt controller = tilt drone'], ['A · B · X · Y', 'take off · home · mode · view']
-  ];
   const src = isQuest || input.source === 'quest' ? 'quest' : input.source === 'gamepad' || [...(navigator.getGamepads?.() ?? [])].some(Boolean) ? 'gamepad' : 'keyboard';
   return ({
     keyboard: [['W / S', 'throttle (climb / descend)'], ['A / D', 'yaw'], ['↑ ↓ ← →', 'pitch / roll'], ['Enter', 'take off · land · reset'], ['H', 'return to home'], ['M', 'flight mode'], ['V', 'FPV ↔ line of sight'], ['R / F', 'camera tilt'], ['Esc', 'back to cockpit']],
@@ -128,7 +128,7 @@ function goLobby() {
 function onLaunch(c: LaunchConfig) {
   cfg = c; lobby!.leave(); state = 'briefing'; $('chip').hidden = true; $('vr2').hidden = true;
   const m = createMission(c.missionIdx, c.waypoints);
-  briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, control: settings.v.control, controls: controlRows().slice(0, 7), startKey: startKey() });
+  briefing!.show({ drone: DRONES[c.droneIdx], mission: m.name, objectives: m.objectives, view: m.forceView ?? c.view, controls: controlRows().slice(0, 7), startKey: startKey() });
   mission = m; launchQueued = false;
   prepareFlight();
 }
@@ -271,7 +271,7 @@ function simulate(dt: number) {
   if (input.justPressed('rth') && !fm.manual && fm.armed && mission?.id !== 'last10') fm.phase = fm.phase === 'rth' ? 'flying' : 'rth';
   if (input.justPressed('mode')) fm.cycleMode();
   if (input.justPressed('view') && !mission?.forceView) cycleView();
-  if (input.justPressed('recenter')) { needRecenter = true; input.recenterMotion(); }
+  if (input.justPressed('recenter')) { needRecenter = true; }
   const tiltDir = (input.isHeld('tiltUp') ? 1 : 0) - (input.isHeld('tiltDown') ? 1 : 0);
   if (fm.manual) fm.camTilt = THREE.MathUtils.clamp(fm.camTilt + tiltDir * 30 * dt, 0, 50);
   else gimbal = THREE.MathUtils.clamp(gimbal + tiltDir * 30 * dt, -90, 20);
@@ -419,7 +419,6 @@ function updateRemote() {
 /* ---------- frame ---------- */
 let hudTick = 0;
 let fpsAvg = 60, frames = 0;
-const motionQ = { left: new THREE.Quaternion(), right: new THREE.Quaternion() };
 const Y_AXIS = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3(), tmpQ2 = new THREE.Quaternion();
 function frame() {
   frames++;
@@ -428,14 +427,12 @@ function frame() {
   const xr = renderer.xr.isPresenting;
   if (xr) {
     const session = renderer.xr.getSession()!; const pads: typeof input.xrGamepads = {};
-    const xf = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(), poses: typeof input.motion = {};
+    const xf = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
     for (const src of session.inputSources) {
       const hand = src.handedness; if (!src.gamepad || (hand !== 'left' && hand !== 'right')) continue;
       pads[hand] = src.gamepad;
-      const pose = xf && ref && src.targetRaySpace ? xf.getPose(src.targetRaySpace, ref) : null;   // controller pose, for motion control
-      if (pose) { const o = pose.transform.orientation; motionQ[hand].set(o.x, o.y, o.z, o.w); poses[hand] = { q: motionQ[hand], trigger: src.gamepad.buttons[0]?.value ?? 0 }; }
     }
-    input.xrGamepads = pads; input.motion = poses;
+    input.xrGamepads = pads;
     const vp = xf && ref ? xf.getViewerPose(ref) : null;                                                // your head, for immersive 360
     if (vp) { const o = vp.transform.orientation, p = vp.transform.position; imm.headQ.set(o.x, o.y, o.z, o.w); imm.headP.set(p.x, p.y, p.z); imm.has = true; }
   }

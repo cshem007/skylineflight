@@ -14,12 +14,11 @@ export interface SettingsValues {
   quality: 'auto' | 'low' | 'medium' | 'high';
   fps: boolean;
   view: 'fpv' | 'los' | 'imm';   // preferred flight view (the Line of sight mission forces its own)
-  control: 'sticks' | 'motion'; // regular controller sticks, or one-hand motion control
   startMode: 'N' | 'S' | 'M';   // flight mode to start in (M = manual / acro, where the drone has it)
   remote: number;                // size of the screen on the VR remote
 }
 
-const DEFAULTS: SettingsValues = { stickMode: 2, expo: 0.3, rates: 1, uptilt: -1, wind: 1, screen: 1, volume: 0.8, quality: 'auto', fps: false, view: 'fpv', control: 'sticks', startMode: 'N', remote: 2.4 };
+const DEFAULTS: SettingsValues = { stickMode: 2, expo: 0.3, rates: 1, uptilt: -1, wind: 1, screen: 1, volume: 0.8, quality: 'auto', fps: false, view: 'fpv', startMode: 'N', remote: 2.4 };
 
 export const OPTIONS: Option<unknown>[] = [
   { key: 'stickMode', label: 'Stick mode', choices: [2, 1], names: ['Mode 2', 'Mode 1'], help: 'Mode 2: throttle left. Mode 1: throttle right.' },

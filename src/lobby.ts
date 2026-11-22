@@ -707,7 +707,7 @@ const consoleG = new THREE.Group(); place(consoleG, 50, 1.4); pod.add(consoleG);
   consoleG.add(mesh(body, M.satin));
   consoleG.add(mesh(new THREE.BoxGeometry(0.7, 0.006, 0.006), glow(AMBER, 0.9), 0, 0.03, 0.215, { cast: false }));
 }
-const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
+const consoleScreen = new UIPanel(0.56, 0.18, 1600, (g, W, Hh, p) => {
   p.bg();
   const d = DRONES[droneIdx], ev = effView(), forced = missionIdx === 3, st = routeStats();
   txt(g, 'FLIGHT SETUP', 30, 42, `600 22px ${FONT_M}`, '#7FB9D6', 'left', 4);
@@ -723,19 +723,15 @@ const consoleScreen = new UIPanel(0.56, 0.24, 1600, (g, W, Hh, p) => {
     { id: 'v-los', label: 'LINE OF SIGHT', active: ev === 'los', disabled: false, onClick: () => setV('los') },
     { id: 'v-imm', label: 'IMMERSIVE 360', active: ev === 'imm', disabled: forced || !d.immersive, onClick: () => setV('imm') }
   ]);
-  row(146, 'CONTROL', [
-    { id: 'c-sticks', label: 'REGULAR STICKS', active: settings.v.control === 'sticks', onClick: () => settings.set('control', 'sticks') },
-    { id: 'c-motion', label: 'MOTION CONTROL', active: settings.v.control === 'motion', onClick: () => settings.set('control', 'motion') }
-  ]);
   const has = id => d.ids.includes(id), sm = has(settings.v.startMode) ? settings.v.startMode : 'N';
-  row(230, 'START IN', [
+  row(146, 'START IN', [
     { id: 'm-N', label: 'NORMAL', active: sm === 'N', disabled: !has('N'), onClick: () => settings.set('startMode', 'N') },
     { id: 'm-S', label: 'SPORT', active: sm === 'S', disabled: !has('S'), onClick: () => settings.set('startMode', 'S') },
     { id: 'm-M', label: 'MANUAL', active: sm === 'M', disabled: !has('M'), onClick: () => settings.set('startMode', 'M') }
   ]);
   const note = forced ? 'This mission is flown in line of sight.' : ev === 'imm' ? 'Immersive: turn your head and the drone turns with you.' : !d.immersive ? `${d.name} has no immersive mode. Manual: Avata 2, Neo.` : '';
-  txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 30, 346, `500 22px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
-  if (note) txt(g, note, W - 30, 346, `400 20px ${FONT_D}`, '#8FA3B5', 'right');
+  txt(g, waypoints.length ? `${waypoints.length} WP · ${fmtTime(st.time)} · ${st.bat} % battery` : 'No route planned', 30, 262, `500 22px ${FONT_M}`, waypoints.length ? '#FFB020' : '#5E7385');
+  if (note) txt(g, note, W - 30, 262, `400 20px ${FONT_D}`, '#8FA3B5', 'right');
 }, { back: false, minPx: 30 });
 place(consoleScreen.group, 36, 1.35, 1.7); consoleScreen.group.rotateX(-0.18); consoleScreen.group.scale.setScalar(1.75); pod.add(consoleScreen.group);   // big floating Flight Setup panel above the console, tilted to the pilot   // lies on the sloped top, behind the launch controls
 // guarded launch switch
