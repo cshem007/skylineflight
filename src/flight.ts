@@ -19,6 +19,7 @@ export class FlightModel {
   quat = new THREE.Quaternion();   // body attitude (manual) or visual tilt (assisted)
   yaw = 0;                         // heading, radians (0 = -Z), assisted modes
   tiltP = 0; tiltR = 0;            // visual tilt in assisted, radians
+  wobble = new THREE.Vector3();    // prop-wash shake, rad/s
   rates = new THREE.Vector3();     // body rates (manual), rad/s
   phase: Phase = 'landed';
   battery = 1;                     // 0..1
@@ -58,7 +59,7 @@ export class FlightModel {
 
   reset(at: THREE.Vector3, yaw: number) {
     this.pos.copy(at); this.vel.set(0, 0, 0); this.yaw = yaw; this.tiltP = this.tiltR = 0;
-    this.quat.setFromAxisAngle(UP, yaw); this.rates.set(0, 0, 0);
+    this.quat.setFromAxisAngle(UP, yaw); this.rates.set(0, 0, 0); this.wobble.set(0, 0, 0);
     this.phase = 'landed'; this.flightTime = 0; this.landedFor = 0; this.throttleOut = 0;
   }
 
@@ -135,10 +136,13 @@ export class FlightModel {
     const d = this.drone, rate = THREE.MathUtils.degToRad(d.maxRate * settings.v.rates);
     // rate mode: sticks command body rates
     const targetRates = new THREE.Vector3(-s.pitch * rate, -s.yaw * rate * 0.7, -s.roll * rate);
-    this.rates.lerp(targetRates, 1 - Math.exp(-dt * 25));
-    // prop wash: dropping fast while on the throttle shakes the quad (the classic FPV wobble)
+    // prop wash: dropping fast while on the throttle shakes the quad (the classic FPV wobble). A small, smoothed
+    // wobble on the commanded rates; never added to the rates themselves (that accumulated into a violent tumble)
     this.washing = THREE.MathUtils.clamp((-this.vel.y - 2.5) / 4, 0, 1) * (this.throttleOut > 0.3 ? 1 : 0);
-    if (this.washing > 0) this.rates.add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5) * 0.3, (Math.random() - 0.5)).multiplyScalar(this.washing * 9));
+    const amp = this.washing * 0.7, kw = 1 - Math.exp(-dt * 14);
+    this.wobble.x += ((Math.random() - 0.5) * 2 * amp - this.wobble.x) * kw; this.wobble.z += ((Math.random() - 0.5) * 2 * amp - this.wobble.z) * kw; this.wobble.y += ((Math.random() - 0.5) * 0.6 * amp - this.wobble.y) * kw;
+    targetRates.add(this.wobble);
+    this.rates.lerp(targetRates, 1 - Math.exp(-dt * 25));
     tmpQ.setFromEuler(tmpE.set(this.rates.x * dt, this.rates.y * dt, this.rates.z * dt, 'YXZ'));
     this.quat.multiply(tmpQ).normalize();
 
